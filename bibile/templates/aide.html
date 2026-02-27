@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aide - Bibile</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>📦 Bibile</h1>
+                <p class="tagline">Extracteur d'enlèvements Hillebrand</p>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">Accueil</a>
+                <a href="/aide" class="nav-link active">Aide</a>
+                <a href="/historique" class="nav-link">Historique</a>
+                <a href="/donnees" class="nav-link">Données</a>
+            </nav>
+        </header>
+
+        <main>
+            <div class="card">
+                <h2>📖 Guide d'utilisation</h2>
+
+                <div class="help-section">
+                    <h3>🚀 Comment utiliser Bibile ?</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h4>Ouvrez votre fichier PDF</h4>
+                                <p>Ouvrez le fichier PDF que vous recevez chaque jour par email</p>
+                            </div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h4>Sélectionnez tout le contenu</h4>
+                                <p>Appuyez sur <kbd>Ctrl+A</kbd> pour tout sélectionner</p>
+                            </div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h4>Copiez le texte</h4>
+                                <p>Appuyez sur <kbd>Ctrl+C</kbd> pour copier</p>
+                            </div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-number">4</div>
+                            <div class="step-content">
+                                <h4>Collez dans Bibile</h4>
+                                <p>Cliquez dans le grand champ de texte et appuyez sur <kbd>Ctrl+V</kbd></p>
+                            </div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-number">5</div>
+                            <div class="step-content">
+                                <h4>Générez le fichier Excel</h4>
+                                <p>Cliquez sur le bouton "Générer le fichier Excel"</p>
+                            </div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-number">6</div>
+                            <div class="step-content">
+                                <h4>Téléchargez et utilisez</h4>
+                                <p>Le fichier Excel se télécharge automatiquement dans votre dossier Téléchargements</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>📊 Visualisation des données (page "Données")</h3>
+                    <p>Après avoir généré un fichier Excel, vous pouvez consulter et analyser les données directement dans votre navigateur :</p>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h4>Accédez à la page Données</h4>
+                                <p>Cliquez sur "Données" dans le menu de navigation</p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h4>Sélectionnez un fichier</h4>
+                                <p>Choisissez un fichier Excel dans la liste déroulante</p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h4>Utilisez les filtres</h4>
+                                <p>Filtrez par livraison, ville, référence ou recherche globale</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h4>Fonctionnalités de la page Données :</h4>
+                    <ul class="feature-list">
+                        <li><strong>Statistiques en temps réel</strong> - Totaux par type de livraison (BREVET, TRANSIT, CHEVROLET)</li>
+                        <li><strong>Codes couleurs</strong> - Chaque livraison a une couleur distincte (bleu, orange, vert)</li>
+                        <li><strong>Filtrage instantané</strong> - Les résultats s'affichent immédiatement sans rechargement</li>
+                        <li><strong>Recherche globale</strong> - Cherchez dans toutes les colonnes simultanément</li>
+                        <li><strong>Statistiques dynamiques</strong> - Les totaux se mettent à jour automatiquement avec les filtres</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>📋 Les colonnes du tableau :</h3>
+                    <ul class="feature-list">
+                        <li><strong>N° Enl.</strong> - Numéro de l'enlèvement</li>
+                        <li><strong>Référence</strong> - Référence interne</li>
+                        <li><strong>Société</strong> - Nom de la société</li>
+                        <li><strong>Ville</strong> - Ville de l'enlèvement</li>
+                        <li><strong>Nb Pal.</strong> - Nombre de palettes (PART=0, HALF=1)</li>
+                        <li><strong>Type Pal.</strong> - VMF, EURO, PART PALLET, HALF PALLET</li>
+                        <li><strong>Poids (kg)</strong> - Poids total en kilogrammes</li>
+                        <li><strong>Nb Colis</strong> - Nombre de colis</li>
+                        <li><strong>Livraison</strong> - BREVET, TRANSIT, CHEVROLET</li>
+                        <li><strong>Tél.</strong> - Numéro de téléphone</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>🎨 Codes couleurs des livraisons</h3>
+                    <p>Dans la page Données, chaque type de livraison a une couleur distinctive :</p>
+                    <ul class="feature-list">
+                        <li><strong style="color: #2563eb;">🟦 BREVET</strong> - Bordure bleue</li>
+                        <li><strong style="color: #f59e0b;">🟧 TRANSIT</strong> - Bordure orange</li>
+                        <li><strong style="color: #10b981;">🟩 CHEVROLET</strong> - Bordure verte</li>
+                    </ul>
+                    <p>Ces couleurs facilitent l'identification rapide des types de livraison dans le tableau.</p>
+                </div>
+
+                <div class="help-section">
+                    <h3>🔍 Deux façons de filtrer vos données</h3>
+
+                    <h4>Option 1 : Filtres dans la page Données (recommandé)</h4>
+                    <ul class="numbered-list">
+                        <li>Allez sur la page <a href="/donnees">Données</a></li>
+                        <li>Sélectionnez votre fichier</li>
+                        <li>Utilisez les filtres instantanés (livraison, ville, référence, etc.)</li>
+                        <li>Les statistiques se mettent à jour automatiquement</li>
+                    </ul>
+
+                    <h4>Option 2 : Filtres dans Excel</h4>
+                    <p>Le fichier Excel téléchargé contient aussi des filtres automatiques :</p>
+                    <ol class="numbered-list">
+                        <li>Ouvrez le fichier Excel téléchargé</li>
+                        <li>Cliquez sur les petites flèches dans les en-têtes de colonnes</li>
+                        <li>Décochez/Cochez les valeurs que vous voulez afficher</li>
+                        <li>La ligne TOTAL en bas se met à jour automatiquement</li>
+                    </ol>
+                </div>
+
+                <div class="help-section">
+                    <h3>⚠️ En cas de problème</h3>
+                    <div class="troubleshooting">
+                        <div class="problem">
+                            <h4>❌ "Aucun enlèvement trouvé"</h4>
+                            <p><strong>Solution :</strong> Vérifiez que vous avez bien copié TOUT le contenu du PDF. Le texte doit contenir des lignes comme "Enlèvement 1", "Enlèvement 2", etc.</p>
+                        </div>
+
+                        <div class="problem">
+                            <h4>❌ "Erreur lors de la génération"</h4>
+                            <p><strong>Solution :</strong> Rechargez la page et réessayez. Si le problème persiste, contactez le support informatique.</p>
+                        </div>
+
+                        <div class="problem">
+                            <h4>❌ Le fichier ne se télécharge pas</h4>
+                            <p><strong>Solution :</strong> Vérifiez les paramètres de votre navigateur. Assurez-vous que les téléchargements automatiques sont autorisés.</p>
+                        </div>
+
+                        <div class="problem">
+                            <h4>❌ La page Données ne charge pas</h4>
+                            <p><strong>Solution :</strong> Vérifiez qu'un fichier Excel a bien été généré. Allez sur la page <a href="/historique">Historique</a> pour voir les fichiers disponibles. Si aucun fichier n'existe, générez-en un depuis la <a href="/">page d'accueil</a>.</p>
+                        </div>
+
+                        <div class="problem">
+                            <h4>❌ Les statistiques sont incorrectes</h4>
+                            <p><strong>Solution :</strong> Cliquez sur "Réinitialiser" pour effacer tous les filtres. Vérifiez que le fichier source est correct. Les statistiques comptent le nombre de palettes (PART=0, HALF=1).</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>💡 Astuces</h3>
+                    <ul class="tips-list">
+                        <li>Consultez la page <a href="/donnees">Données</a> pour analyser vos fichiers sans ouvrir Excel</li>
+                        <li>Consultez l'<a href="/historique">Historique</a> pour télécharger vos anciens fichiers Excel</li>
+                        <li>Le bouton "Effacer" permet de vider rapidement le champ de texte</li>
+                        <li>Utilisez <kbd>Ctrl+Enter</kbd> comme raccourci pour générer le fichier</li>
+                        <li>Les filtres de la page Données sont instantanés (pas besoin de recharger)</li>
+                        <li>Les statistiques se mettent à jour automatiquement quand vous filtrez les données</li>
+                        <li>Chaque génération est enregistrée dans les logs pour traçabilité</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📞 Besoin d'aide ?</h3>
+                <p>Contactez votre service informatique en fournissant :</p>
+                <ul>
+                    <li>Le fichier PDF que vous essayez de traiter</li>
+                    <li>Une capture d'écran du message d'erreur</li>
+                    <li>La date et l'heure de l'erreur</li>
+                </ul>
+            </div>
+        </main>
+
+        <footer>
+            <p>Bibile v1.0 - Outil interne Hillebrand</p>
+        </footer>
+    </div>
+</body>
+</html>

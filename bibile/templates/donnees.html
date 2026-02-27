@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Données - Bibile</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>📦 Bibile</h1>
+                <p class="tagline">Extracteur d'enlèvements Hillebrand</p>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">Accueil</a>
+                <a href="/aide" class="nav-link">Aide</a>
+                <a href="/historique" class="nav-link">Historique</a>
+                <a href="/donnees" class="nav-link active">Données</a>
+            </nav>
+        </header>
+
+        <main>
+            <!-- Sélecteur de fichier -->
+            <div class="card">
+                <h2>📊 Visualisation des données</h2>
+                <div class="file-selector-section">
+                    <label for="fileSelect">Sélectionnez un fichier :</label>
+                    <select id="fileSelect" class="file-select">
+                        <option value="">-- Choisir un fichier --</option>
+                        <!-- Populated dynamically by JS -->
+                    </select>
+                </div>
+            </div>
+
+            <!-- Statistiques (hidden until file loaded) -->
+            <div id="statsSection" class="stats-section hidden">
+                <div class="stat-card stat-brevet">
+                    <div class="stat-label">BREVET</div>
+                    <div class="stat-value" id="statBrevet">0</div>
+                </div>
+                <div class="stat-card stat-transit">
+                    <div class="stat-label">TRANSIT</div>
+                    <div class="stat-value" id="statTransit">0</div>
+                </div>
+                <div class="stat-card stat-chevrolet">
+                    <div class="stat-label">CHEVROLET</div>
+                    <div class="stat-value" id="statChevrolet">0</div>
+                </div>
+            </div>
+
+            <!-- Filtres (hidden until file loaded) -->
+            <div id="filtersCard" class="card hidden">
+                <h3>🔍 Filtres</h3>
+                <div class="filters-grid">
+                    <div class="filter-group">
+                        <label>Livraison</label>
+                        <select id="filterLivraison" class="filter-input">
+                            <option value="">Tous</option>
+                            <option value="BREVET">BREVET</option>
+                            <option value="TRANSIT">TRANSIT</option>
+                            <option value="CHEVROLET">CHEVROLET</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Ville</label>
+                        <select id="filterVille" class="filter-input">
+                            <option value="">Toutes</option>
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>N° Enlèvement</label>
+                        <input type="text" id="filterEnlevement" class="filter-input" placeholder="Ex: 123">
+                    </div>
+                    <div class="filter-group">
+                        <label>Référence</label>
+                        <input type="text" id="filterReference" class="filter-input" placeholder="Ex: REF123">
+                    </div>
+                    <div class="filter-group filter-search">
+                        <label>Recherche globale</label>
+                        <input type="text" id="filterSearch" class="filter-input" placeholder="Rechercher dans toutes les colonnes...">
+                    </div>
+                    <div class="filter-group">
+                        <button id="clearFilters" class="btn-secondary">Réinitialiser</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tableau de données (hidden until file loaded) -->
+            <div id="tableCard" class="card hidden">
+                <div class="table-header">
+                    <h3>📋 Données</h3>
+                    <div class="table-info">
+                        <span id="rowCount">0 lignes</span>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="dataTable" class="data-table">
+                        <thead>
+                            <tr>
+                                <th>N° Enl.</th>
+                                <th>Référence</th>
+                                <th>Société</th>
+                                <th>Ville</th>
+                                <th>Nb Pal.</th>
+                                <th>Type Pal.</th>
+                                <th>Poids (kg)</th>
+                                <th>Nb Colis</th>
+                                <th>Livraison</th>
+                                <th>Tél.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="empty-state">
+                <div class="empty-icon">📊</div>
+                <h3>Sélectionnez un fichier</h3>
+                <p>Choisissez un fichier Excel dans la liste déroulante pour afficher les données</p>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loadingState" class="empty-state hidden">
+                <div class="loading">Chargement des données...</div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Bibile v1.0 - Outil interne Hillebrand</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/donnees.js"></script>
+</body>
+</html>

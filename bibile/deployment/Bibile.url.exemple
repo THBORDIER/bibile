@@ -1,0 +1,10 @@
+[InternetShortcut]
+URL=http://REMPLACER_PAR_IP_VM:5001
+IconIndex=0
+
+REM Instructions:
+REM 1. Renommer ce fichier en "Bibile.url" (enlever ".exemple")
+REM 2. Remplacer "REMPLACER_PAR_IP_VM" par l'adresse IP de votre VM
+REM    Exemple: http://192.168.1.50:5001
+REM 3. Copier ce fichier sur les bureaux des utilisateurs
+REM 4. Double-clic pour ouvrir Bibile dans le navigateur
