@@ -696,8 +696,49 @@ def upload_pdf():
 _sessions_temp = {}
 
 
+_MOIS_FR = {
+    'janv': 1, 'jan': 1, 'janvier': 1,
+    'févr': 2, 'fevr': 2, 'fev': 2, 'février': 2, 'fevrier': 2,
+    'mars': 3, 'mar': 3,
+    'avr': 4, 'avril': 4,
+    'mai': 5,
+    'juin': 6, 'jun': 6,
+    'juil': 7, 'jul': 7, 'juillet': 7,
+    'août': 8, 'aout': 8, 'aoû': 8,
+    'sept': 9, 'sep': 9, 'septembre': 9,
+    'oct': 10, 'octobre': 10,
+    'nov': 11, 'novembre': 11,
+    'déc': 12, 'dec': 12, 'décembre': 12, 'decembre': 12,
+}
+
+
+def _extraire_date_document(texte):
+    """Extrait la date du document depuis l'en-tête 'Date: DD/mois/YYYY HH:MM'.
+
+    Retourne un objet datetime ou None si non trouvé.
+    """
+    for ligne in texte.split('\n')[:5]:
+        ligne = ligne.strip()
+        # Format: "Date: 09/févr./2026 17:18"
+        m = re.match(r'Date:\s*(\d{1,2})/([^/]+)/(\d{4})', ligne)
+        if m:
+            jour = int(m.group(1))
+            mois_str = m.group(2).strip().rstrip('.').lower()
+            annee = int(m.group(3))
+            mois = _MOIS_FR.get(mois_str)
+            if mois:
+                try:
+                    return datetime(annee, mois, jour)
+                except ValueError:
+                    pass
+    return None
+
+
 def _parse_and_log(texte):
-    """Parse le texte et génère le log. Retourne (lignes, erreurs, nom_excel, chemin_excel, chemin_log, log_contenu)."""
+    """Parse le texte et génère le log. Retourne (lignes, erreurs, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc)."""
+    # Extraire la date du document (en-tête PDF)
+    date_doc = _extraire_date_document(texte)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nom_excel = f"Enlevements_{timestamp}.xlsx"
     nom_log = f"log_{timestamp}.md"
@@ -711,6 +752,8 @@ def _parse_and_log(texte):
     log_to_file("=" * 70, chemin_log)
     log_to_file("BIBILE - Extracteur d'enlèvements Hillebrand", chemin_log)
     log_to_file("=" * 70, chemin_log)
+    if date_doc:
+        log_to_file(f"Date du document: {date_doc.strftime('%d/%m/%Y')}", chemin_log)
     log_to_file("", chemin_log)
 
     lignes_tableau, erreurs_controle = parser_texte(texte, chemin_log)
@@ -731,13 +774,15 @@ def _parse_and_log(texte):
         with open(chemin_log, 'r', encoding='utf-8') as f:
             log_contenu = f.read()
 
-    return lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu
+    return lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc
 
 
-def _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu):
+def _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc=None):
     """Génère l'Excel, sauvegarde en DB, et retourne le fichier."""
     generer_excel(lignes_tableau, chemin_excel, chemin_log)
-    save_extraction(DB_PATH, nom_excel, datetime.now(), lignes_tableau, log_contenu)
+    # Utiliser la date du document si disponible, sinon la date actuelle
+    extraction_date = date_doc or datetime.now()
+    save_extraction(DB_PATH, nom_excel, extraction_date, lignes_tableau, log_contenu)
     return send_file(
         chemin_excel,
         as_attachment=True,
@@ -755,7 +800,7 @@ def generer():
         if not texte:
             return jsonify({'erreur': 'Aucun texte fourni'}), 400
 
-        lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu = _parse_and_log(texte)
+        lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc = _parse_and_log(texte)
 
         if len(lignes_tableau) == 0:
             return jsonify({'erreur': 'Aucun enlèvement trouvé dans le texte. Vérifiez que vous avez copié le bon document.'}), 400
@@ -774,6 +819,7 @@ def generer():
                 'chemin_log': str(chemin_log),
                 'log_contenu': log_contenu,
                 'duplicates': duplicates,
+                'date_doc': date_doc,
             }
 
             # Compter les nouveaux vs doublons
@@ -806,7 +852,7 @@ def generer():
             })
 
         # Pas de doublons : génération directe
-        return _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu)
+        return _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc)
 
     except Exception as e:
         import traceback
@@ -831,6 +877,7 @@ def generer_confirmer():
         chemin_log = Path(session['chemin_log'])
         log_contenu = session['log_contenu']
         duplicates = session['duplicates']
+        date_doc = session.get('date_doc')
 
         if action == 'update':
             # Mettre à jour les enlèvements existants + ajouter les nouveaux
@@ -843,7 +890,8 @@ def generer_confirmer():
             if nouveaux:
                 # Sauvegarder les nouveaux comme nouvelle extraction
                 generer_excel(lignes_tableau, chemin_excel, chemin_log)  # Excel complet pour le téléchargement
-                save_extraction(DB_PATH, nom_excel, datetime.now(), nouveaux, log_contenu)
+                extraction_date = date_doc or datetime.now()
+                save_extraction(DB_PATH, nom_excel, extraction_date, nouveaux, log_contenu)
             else:
                 # Que des mises à jour, générer quand même l'Excel pour téléchargement
                 generer_excel(lignes_tableau, chemin_excel, chemin_log)
@@ -857,7 +905,7 @@ def generer_confirmer():
 
         elif action == 'add_all':
             # Tout ajouter comme nouvelle extraction (comportement classique)
-            return _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu)
+            return _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc)
 
         elif action == 'skip_duplicates':
             # N'ajouter que les nouveaux enlèvements
@@ -867,7 +915,7 @@ def generer_confirmer():
             if not nouveaux:
                 return jsonify({'erreur': 'Tous les enlèvements sont des doublons. Rien à ajouter.'}), 400
 
-            return _finalize_generation(nouveaux, nom_excel, chemin_excel, chemin_log, log_contenu)
+            return _finalize_generation(nouveaux, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc)
 
         else:
             return jsonify({'erreur': f'Action inconnue: {action}'}), 400
@@ -1363,6 +1411,19 @@ def api_vehicle_positions():
         if not config:
             return jsonify({'positions': []})
         positions = fetch_vehicle_positions(config)
+
+        # Marquer les véhicules sélectionnés par l'utilisateur
+        selected_ids = set()
+        try:
+            for v in list_vehicules_sync(DB_PATH):
+                if v.get('selectionne'):
+                    selected_ids.add(str(v['externe_id']))
+        except Exception:
+            pass
+
+        for p in positions:
+            p['selected'] = str(p.get('vehicleId', '')) in selected_ids
+
         return jsonify({'positions': positions})
     except Exception as e:
         return jsonify({'erreur': str(e), 'positions': []}), 500

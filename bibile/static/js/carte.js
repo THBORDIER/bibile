@@ -46,8 +46,10 @@ function initMap() {
 
 // ===== VEHICULES LIVE =====
 
-const TRUCK_SVG_GREEN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28"><rect x="1" y="6" width="15" height="10" rx="2" fill="#3fb950" stroke="#fff" stroke-width="1"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#2ea043" stroke="#fff" stroke-width="1"/><circle cx="6" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/><circle cx="19" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/></svg>`;
-const TRUCK_SVG_GREY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28"><rect x="1" y="6" width="15" height="10" rx="2" fill="#6e7681" stroke="#fff" stroke-width="1"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#545d68" stroke="#fff" stroke-width="1"/><circle cx="6" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/><circle cx="19" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/></svg>`;
+// Camion bleu (sélectionné par l'utilisateur) — grand
+const TRUCK_SVG_BLUE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><rect x="1" y="6" width="15" height="10" rx="2" fill="#4493f8" stroke="#fff" stroke-width="1.5"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#316dca" stroke="#fff" stroke-width="1.5"/><circle cx="6" cy="18" r="2" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="19" cy="18" r="2" fill="#222" stroke="#fff" stroke-width="1"/></svg>`;
+// Camion gris (non sélectionné) — petit
+const TRUCK_SVG_GREY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><rect x="1" y="6" width="15" height="10" rx="2" fill="#6e7681" stroke="#ccc" stroke-width="0.8"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#545d68" stroke="#ccc" stroke-width="0.8"/><circle cx="6" cy="18" r="2" fill="#333" stroke="#ccc" stroke-width="0.8"/><circle cx="19" cy="18" r="2" fill="#333" stroke="#ccc" stroke-width="0.8"/></svg>`;
 
 
 async function fetchVehiclePositions() {
@@ -65,25 +67,31 @@ async function fetchVehiclePositions() {
         positions.forEach(p => {
             if (p.lat == null || p.lon == null) return;
 
-            const svg = p.isFresh ? TRUCK_SVG_GREEN : TRUCK_SVG_GREY;
+            const isSelected = p.selected;
+            const svg = isSelected ? TRUCK_SVG_BLUE : TRUCK_SVG_GREY;
+            const size = isSelected ? 32 : 20;
             const icon = L.divIcon({
                 className: 'truck-marker',
                 html: svg,
-                iconSize: [28, 28],
-                iconAnchor: [14, 14],
+                iconSize: [size, size],
+                iconAnchor: [size / 2, size / 2],
             });
 
-            const marker = L.marker([p.lat, p.lon], { icon });
+            const marker = L.marker([p.lat, p.lon], {
+                icon,
+                zIndexOffset: isSelected ? 1000 : 0,
+            });
 
             const speed = p.speed != null ? `${p.speed} km/h` : 'N/A';
             const driver = p.chauffeur || 'Inconnu';
             const freshLabel = p.isFresh
                 ? '<span style="color:#3fb950">En ligne</span>'
                 : '<span style="color:#6e7681">Hors ligne</span>';
+            const selectedLabel = isSelected ? '' : ' <span style="color:#6e7681">(non suivi)</span>';
 
             marker.bindPopup(`
                 <div class="map-popup">
-                    <strong>${escapeHtmlCarte(p.immatriculation)}</strong> ${freshLabel}
+                    <strong>${escapeHtmlCarte(p.immatriculation)}</strong> ${freshLabel}${selectedLabel}
                     <br>Chauffeur: ${escapeHtmlCarte(driver)}
                     <br>Vitesse: ${speed}
                     <br>MAJ: ${escapeHtmlCarte(p.timestamp || 'N/A')}
