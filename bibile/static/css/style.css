@@ -1978,6 +1978,13 @@ kbd {
     border-radius: 4px;
 }
 
+/* Search filter */
+.search-filter {
+    margin: 8px 12px;
+    width: calc(100% - 24px);
+    box-sizing: border-box;
+}
+
 /* Unknown mapping */
 .unknown-mapping-list {
     max-height: 400px;

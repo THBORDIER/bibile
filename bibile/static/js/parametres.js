@@ -38,6 +38,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnSyncNow').addEventListener('click', syncNow);
     document.getElementById('btnRefreshExtDrivers').addEventListener('click', loadExtVehicles);
 
+    // === RECHERCHE ===
+    document.getElementById('searchChauffeurs').addEventListener('input', filterChauffeurs);
+    document.getElementById('searchVehicules').addEventListener('input', filterVehicules);
+    document.getElementById('searchExtVehicles').addEventListener('input', filterExtVehicles);
+
     // Charger les données
     loadZones();
     loadMapping();
@@ -628,6 +633,33 @@ async function saveExtVehicleSelection() {
     } catch (e) {
         console.error('Erreur sauvegarde selection:', e);
     }
+}
+
+
+// ===== RECHERCHE / FILTRAGE =====
+
+function filterChauffeurs() {
+    const q = document.getElementById('searchChauffeurs').value.toLowerCase();
+    document.querySelectorAll('#chauffeursList tr').forEach(tr => {
+        const text = tr.textContent.toLowerCase();
+        tr.style.display = text.includes(q) ? '' : 'none';
+    });
+}
+
+function filterVehicules() {
+    const q = document.getElementById('searchVehicules').value.toLowerCase();
+    document.querySelectorAll('#vehiculesList tr').forEach(tr => {
+        const text = tr.textContent.toLowerCase();
+        tr.style.display = text.includes(q) ? '' : 'none';
+    });
+}
+
+function filterExtVehicles() {
+    const q = document.getElementById('searchExtVehicles').value.toLowerCase();
+    document.querySelectorAll('#extDriversList .ext-driver-item').forEach(el => {
+        const text = el.textContent.toLowerCase();
+        el.style.display = text.includes(q) ? '' : 'none';
+    });
 }
 
 

@@ -99,6 +99,7 @@
                 <h3>Chauffeurs</h3>
                 <button id="btnAddChauffeur" class="btn btn-primary btn-sm">+ Ajouter</button>
             </div>
+            <input type="text" id="searchChauffeurs" class="form-input search-filter" placeholder="Rechercher un chauffeur...">
             <table class="data-table">
                 <thead>
                     <tr><th>Nom</th><th>Prenom</th><th>Telephone</th><th>Actions</th></tr>
@@ -113,6 +114,7 @@
                 <h3>Vehicules</h3>
                 <button id="btnAddVehicule" class="btn btn-primary btn-sm">+ Ajouter</button>
             </div>
+            <input type="text" id="searchVehicules" class="form-input search-filter" placeholder="Rechercher un vehicule...">
             <table class="data-table">
                 <thead>
                     <tr><th>Immatriculation</th><th>Type</th><th>Capacite (pal.)</th><th>Actions</th></tr>
@@ -235,6 +237,7 @@
             <h3>Vehicules a synchroniser</h3>
             <button id="btnRefreshExtDrivers" class="btn btn-sm btn-secondary">Rafraichir la liste</button>
         </div>
+        <input type="text" id="searchExtVehicles" class="form-input search-filter" placeholder="Rechercher un vehicule...">
         <div id="extDriversList" class="ext-drivers-list">
             <p class="text-muted">Configurez la connexion externe pour voir les vehicules disponibles.</p>
         </div>
