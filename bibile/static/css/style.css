@@ -1611,6 +1611,7 @@ kbd {
 
 .map-container {
     flex: 1;
+    min-height: 600px;
     height: 600px;
     border-radius: 8px;
     border: 1px solid var(--border-color);

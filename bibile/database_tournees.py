@@ -117,9 +117,10 @@ def list_tournees(db_path, date_tournee):
         tournee = dict(t)
         # Charger les enlèvements de cette tournée
         enlevements = conn.execute("""
-            SELECT te.ordre, e.*
+            SELECT te.ordre, e.*, vzm.lat, vzm.lon
             FROM tournee_enlevements te
             JOIN enlevements e ON e.id = te.enlevement_id
+            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
             WHERE te.tournee_id = ?
             ORDER BY te.ordre
         """, (tournee['id'],)).fetchall()
@@ -213,28 +214,44 @@ def reorder_enlevements(db_path, tournee_id, ordered_enlevement_ids):
 
 
 def get_unassigned_enlevements(db_path, extraction_id=None, date=None):
-    """Retourne les enlèvements non assignés à une tournée."""
+    """Retourne les enlèvements non assignés à une tournée (dédoublonnés par num+societe, plus récent)."""
     conn = get_db(db_path)
 
     if extraction_id:
         rows = conn.execute("""
-            SELECT e.* FROM enlevements e
+            SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
+            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
             WHERE e.extraction_id = ?
             AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
         """, (extraction_id,)).fetchall()
     elif date:
+        # CTE pour ne garder que l'enlèvement le plus récent par (num_enlevement, societe)
         rows = conn.execute("""
-            SELECT e.* FROM enlevements e
-            JOIN extractions ex ON ex.id = e.extraction_id
-            WHERE DATE(ex.date_creation) = ?
+            WITH latest AS (
+                SELECT MAX(e2.id) as latest_id
+                FROM enlevements e2
+                JOIN extractions ex2 ON ex2.id = e2.extraction_id
+                WHERE DATE(ex2.date_creation) = ?
+                GROUP BY e2.num_enlevement, e2.societe
+            )
+            SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
+            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
+            WHERE e.id IN (SELECT latest_id FROM latest)
             AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
         """, (date,)).fetchall()
     else:
         rows = conn.execute("""
-            SELECT e.* FROM enlevements e
-            WHERE e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
+            WITH latest AS (
+                SELECT MAX(e2.id) as latest_id
+                FROM enlevements e2
+                GROUP BY e2.num_enlevement, e2.societe
+            )
+            SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
+            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
+            WHERE e.id IN (SELECT latest_id FROM latest)
+            AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
         """).fetchall()
 

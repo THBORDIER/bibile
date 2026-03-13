@@ -1155,6 +1155,13 @@ def api_ville_zone():
 def api_save_ville_zone():
     try:
         data = request.get_json()
+        # Auto-geocode si lat/lon absents
+        ville = data.get('ville', '')
+        if ville and not data.get('lat') and not data.get('lon'):
+            coords = geocode_ville(ville)
+            if coords:
+                data['lat'] = coords['lat']
+                data['lon'] = coords['lon']
         save_ville_zone(DB_PATH, data)
         return jsonify({'ok': True})
     except Exception as e:
@@ -1165,6 +1172,69 @@ def api_save_ville_zone():
 def api_villes_inconnues():
     try:
         return jsonify({'villes': get_villes_inconnues(DB_PATH)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+# ===== GEOCODAGE =====
+
+def geocode_ville(ville):
+    """Géocode une ville via l'API adresse.data.gouv.fr. Retourne {lat, lon} ou None."""
+    import urllib.request
+    import urllib.parse
+    try:
+        query = urllib.parse.urlencode({'q': ville, 'type': 'municipality', 'limit': '1'})
+        url = f'https://api-adresse.data.gouv.fr/search/?{query}'
+        req = urllib.request.Request(url, headers={'User-Agent': 'Bibile/3.0'})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read().decode('utf-8'))
+            features = result.get('features', [])
+            if features:
+                coords = features[0]['geometry']['coordinates']  # [lon, lat]
+                return {'lat': coords[1], 'lon': coords[0]}
+    except Exception as e:
+        print(f"Geocodage erreur pour '{ville}': {e}")
+    return None
+
+
+@app.route('/api/geocode', methods=['POST'])
+def api_geocode():
+    try:
+        data = request.get_json()
+        ville = data.get('ville', '')
+        if not ville:
+            return jsonify({'erreur': 'Ville requise'}), 400
+        coords = geocode_ville(ville)
+        if coords:
+            return jsonify(coords)
+        return jsonify({'erreur': 'Ville non trouvée'}), 404
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/geocode-all', methods=['POST'])
+def api_geocode_all():
+    """Géocode toutes les villes du mapping qui n'ont pas encore de coordonnées."""
+    try:
+        mapping = list_ville_zone_mapping(DB_PATH)
+        geocoded = 0
+        errors = []
+        for m in mapping:
+            if m.get('lat') and m.get('lon'):
+                continue
+            coords = geocode_ville(m['ville'])
+            if coords:
+                save_ville_zone(DB_PATH, {
+                    'ville': m['ville'],
+                    'zone_id': m.get('zone_id'),
+                    'tournee_defaut': m.get('tournee_defaut', ''),
+                    'lat': coords['lat'],
+                    'lon': coords['lon'],
+                })
+                geocoded += 1
+            else:
+                errors.append(m['ville'])
+        return jsonify({'geocoded': geocoded, 'errors': errors})
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
 

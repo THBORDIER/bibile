@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnShowUnknown').addEventListener('click', showUnknownMapping);
     document.getElementById('btnSaveUnknownMapping').addEventListener('click', saveUnknownMapping);
     document.getElementById('btnCancelUnknownMapping').addEventListener('click', () => hideModal('modalUnknownMapping'));
+    document.getElementById('btnGeocodeAll').addEventListener('click', geocodeAll);
 
     // === CHAUFFEURS ===
     document.getElementById('btnAddChauffeur').addEventListener('click', () => showChauffeurModal());
@@ -214,6 +215,30 @@ async function deleteVilleMapping(ville) {
 }
 
 
+// ===== GEOCODAGE =====
+
+async function geocodeAll() {
+    const btn = document.getElementById('btnGeocodeAll');
+    btn.disabled = true;
+    btn.textContent = 'Geocodage en cours...';
+    try {
+        const resp = await fetch('/api/geocode-all', { method: 'POST' });
+        const data = await resp.json();
+        const msg = `${data.geocoded} ville(s) geocodee(s)`;
+        const errMsg = data.errors && data.errors.length > 0
+            ? ` | Non trouvees: ${data.errors.join(', ')}`
+            : '';
+        btn.textContent = msg + errMsg;
+        setTimeout(() => { btn.textContent = 'Geocoder les villes'; btn.disabled = false; }, 4000);
+        loadMapping();
+    } catch (e) {
+        console.error('Erreur geocodage:', e);
+        btn.textContent = 'Erreur geocodage';
+        setTimeout(() => { btn.textContent = 'Geocoder les villes'; btn.disabled = false; }, 3000);
+    }
+}
+
+
 // ===== VILLES INCONNUES =====
 
 async function loadUnknownCities() {
@@ -261,13 +286,13 @@ async function saveUnknownMapping() {
     for (const item of items) {
         const ville = item.dataset.ville;
         const zoneId = item.querySelector('.unknown-zone-select').value;
-        if (zoneId) {
-            await fetch('/api/ville-zone-mapping', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ville, zone_id: parseInt(zoneId) }),
-            });
-        }
+        const data = { ville };
+        if (zoneId) data.zone_id = parseInt(zoneId);
+        await fetch('/api/ville-zone-mapping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
     }
     hideModal('modalUnknownMapping');
     loadMapping();
