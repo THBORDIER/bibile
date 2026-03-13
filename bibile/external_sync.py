@@ -31,12 +31,17 @@ except ImportError:
 logger = logging.getLogger('bibile.sync')
 
 
+# Flag global: True si la connexion est pyodbc (utilise ? au lieu de %s)
+_using_pyodbc = False
+
+
 def _get_connection(config):
     """Crée une connexion à la BDD DBI (SQL Server Azure).
 
     Tente pyodbc (ODBC Driver 17/18) en priorité, fallback pymssql.
     pyodbc est le driver recommandé par Microsoft pour Azure SQL.
     """
+    global _using_pyodbc
     host = config['host']
     port = int(config.get('port', 1433))
     user = config['username']
@@ -67,6 +72,7 @@ def _get_connection(config):
             )
             conn = pyodbc.connect(conn_str)
             conn.timeout = 30
+            _using_pyodbc = True
             return conn
     except ImportError:
         pass
@@ -84,6 +90,7 @@ def _get_connection(config):
     import os
     os.environ.setdefault('TDSVER', '7.3')
 
+    _using_pyodbc = False
     return pymssql.connect(
         server=host,
         port=port,
@@ -95,6 +102,13 @@ def _get_connection(config):
         as_dict=True,
         tds_version='7.3',
     )
+
+
+def _sql(query):
+    """Convertit les marqueurs %s en ? si on utilise pyodbc."""
+    if _using_pyodbc:
+        return query.replace('%s', '?')
+    return query
 
 
 def _row_to_dict(cursor, row):
@@ -327,7 +341,8 @@ class SyncManager:
                     local_vehicles[vs['externe_id']] = row['id']
 
             # Synchro DailyCumulationVehicle (km, durées)
-            placeholders = ','.join(['%s'] * len(externe_ids))
+            ph = '?' if _using_pyodbc else '%s'
+            placeholders = ','.join([ph] * len(externe_ids))
             int_ids = [int(eid) for eid in externe_ids]
 
             cursor.execute(f"""
@@ -339,7 +354,7 @@ class SyncManager:
                     workingDuration / 60 AS duree_travail_minutes
                 FROM DailyCumulationVehicle
                 WHERE vehicleId IN ({placeholders})
-                  AND [timestamp] >= %s
+                  AND [timestamp] >= {ph}
             """, (*int_ids, since_epoch_ms))
 
             daily_data = {}
@@ -359,7 +374,7 @@ class SyncManager:
                     SUM(fuelConsumption) AS consommation_litres
                 FROM StartStopEvent
                 WHERE vehicleId IN ({placeholders})
-                  AND [timestamp] >= %s
+                  AND [timestamp] >= {ph}
                 GROUP BY vehicleId,
                     CONVERT(DATE, DATEADD(s, [timestamp]/1000, '19700101'))
             """, (*int_ids, since_epoch_ms))
