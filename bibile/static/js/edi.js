@@ -25,15 +25,29 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
+function showLoading(msg) {
+    const el = document.getElementById('ediLoading');
+    el.querySelector('.loading-text').textContent = msg || 'Chargement...';
+    el.classList.remove('hidden');
+}
+function hideLoading() {
+    document.getElementById('ediLoading').classList.add('hidden');
+}
+
 async function doCompare() {
     const date = document.getElementById('ediDatePicker').value;
     if (!date) return;
 
     document.getElementById('ediRawCard').classList.add('hidden');
+    document.getElementById('ediResultCard').classList.add('hidden');
+    document.getElementById('ediStats').classList.add('hidden');
+    showLoading('Comparaison EDI vs PDF en cours...');
 
     try {
         const resp = await fetch(`/api/drakkar/compare?date=${date}`);
         const data = await resp.json();
+
+        hideLoading();
 
         if (data.erreur) {
             if (data.erreur.includes('non configuree')) {
@@ -111,6 +125,7 @@ async function doCompare() {
         makeSortable(document.querySelector('#ediResultCard .data-table'));
 
     } catch (e) {
+        hideLoading();
         alert('Erreur de comparaison: ' + e.message);
     }
 }
@@ -122,10 +137,14 @@ async function viewEdiRaw() {
 
     document.getElementById('ediResultCard').classList.add('hidden');
     document.getElementById('ediStats').classList.add('hidden');
+    document.getElementById('ediRawCard').classList.add('hidden');
+    showLoading('Chargement des EDI bruts...');
 
     try {
         const resp = await fetch(`/api/drakkar/edi?date=${date}`);
         const data = await resp.json();
+
+        hideLoading();
 
         if (data.erreur) {
             if (data.erreur.includes('non configuree')) {
@@ -161,6 +180,7 @@ async function viewEdiRaw() {
         makeSortable(document.querySelector('#ediRawCard .data-table'));
 
     } catch (e) {
+        hideLoading();
         alert('Erreur chargement EDI: ' + e.message);
     }
 }
