@@ -12,7 +12,7 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError
 
 
-GITHUB_API_URL = "https://api.github.com/repos/THBRDIER/bibile/releases/latest"
+GITHUB_API_URL = "https://api.github.com/repos/THBORDIER/bibile/releases/latest"
 
 
 def _parse_version(v):
