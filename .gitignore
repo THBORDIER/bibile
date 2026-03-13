@@ -49,5 +49,8 @@ bibile/*.db
 Date*.txt
 nul
 
+# Fichiers sensibles (identifiants BDD, etc.)
+DB_DOSSIER_COMPLET.md
+
 # Claude settings locaux
 .claude/
