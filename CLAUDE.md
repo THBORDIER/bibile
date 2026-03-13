@@ -5,9 +5,10 @@
 Application desktop (pywebview + Flask) pour extraire les donnees d'enlevements depuis du texte PDF Hillebrand et generer des fichiers Excel.
 
 ```
-main.py                # Entry point desktop (pywebview + Flask en thread)
+main.py                # Entry point desktop (pywebview + Flask en thread + init DB)
 bibile/
-  server.py            # Backend Flask (toute la logique metier)
+  server.py            # Backend Flask (logique metier + routes API)
+  database.py          # Module SQLite (stockage extractions + enlevements)
   templates/
     base.html          # Template de base (sidebar + layout dark theme)
     index.html         # Page d'accueil (extraction)
@@ -29,6 +30,15 @@ build.bat              # Script de build .exe
 - En mode PyInstaller bundle : templates/static depuis `sys._MEIPASS`, donnees dans `%APPDATA%/Bibile/`
 - En mode dev : donnees dans `bibile/` (comportement original)
 - Variable d'environnement `BIBILE_DATA_DIR` controle le dossier de donnees
+- Variable d'environnement `BIBILE_DB_PATH` controle le chemin de la base SQLite
+
+## Base de donnees SQLite
+
+- Fichier : `bibile.db` dans le dossier de donnees
+- Table `extractions` : metadonnees (nom_fichier, date, nb_lignes, log_contenu)
+- Table `enlevements` : donnees des enlevements (liees a une extraction par FK)
+- Au premier lancement, dialogue tkinter propose d'importer l'ancien historique (fichiers .xlsx)
+- Les fichiers Excel restent generes pour le telechargement, la DB est la source de verite
 
 ## Fonctions cles (server.py)
 

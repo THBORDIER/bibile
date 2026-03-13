@@ -54,9 +54,16 @@ DATA_DIR = Path(os.environ.get('BIBILE_DATA_DIR', str(BASE_DIR)))
 LOGS_DIR = DATA_DIR / 'logs'
 HISTORIQUE_DIR = DATA_DIR / 'historique'
 
+# Base de données SQLite
+DB_PATH = Path(os.environ.get('BIBILE_DB_PATH', str(DATA_DIR / 'bibile.db')))
+
 # Créer les dossiers s'ils n'existent pas
 LOGS_DIR.mkdir(exist_ok=True)
 HISTORIQUE_DIR.mkdir(exist_ok=True)
+
+# Initialiser la DB si lancé directement (sans main.py)
+from bibile.database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db
+init_db(DB_PATH)
 
 
 
@@ -645,6 +652,13 @@ def generer():
         log_to_file(f"Fichier cree: {nom_excel}", chemin_log)
         log_to_file("=" * 70, chemin_log)
 
+        # Sauvegarder dans la base SQLite
+        log_contenu = None
+        if chemin_log.exists():
+            with open(chemin_log, 'r', encoding='utf-8') as f:
+                log_contenu = f.read()
+        save_extraction(DB_PATH, nom_excel, datetime.now(), lignes_tableau, log_contenu)
+
         # Retourner le fichier Excel
         return send_file(
             chemin_excel,
@@ -669,37 +683,8 @@ def generer():
 @app.route('/api/historique')
 def api_historique():
     try:
-        historique = []
-
-        # Liste tous les fichiers Excel dans le dossier historique
-        for fichier in sorted(HISTORIQUE_DIR.glob('Enlevements_*.xlsx'), reverse=True):
-            timestamp_str = fichier.stem.replace('Enlevements_', '')
-
-            try:
-                # Parse le timestamp
-                timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
-
-                # Lit le fichier Excel pour compter les lignes
-                df = pd.read_excel(fichier)
-                nb_lignes = len(df)
-
-                # Trouve le log correspondant
-                log_fichier = f"log_{timestamp_str}.md"
-
-                historique.append({
-                    'fichier': fichier.name,
-                    'nom_fichier': fichier.name,
-                    'date': timestamp.isoformat(),
-                    'nb_lignes': nb_lignes,
-                    'log_fichier': log_fichier
-                })
-
-            except Exception as e:
-                print(f"Erreur lors de la lecture de {fichier}: {e}")
-                continue
-
+        historique = list_extractions(DB_PATH)
         return jsonify({'historique': historique})
-
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
 
@@ -711,34 +696,44 @@ def api_donnees(filename):
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify({'erreur': 'Nom de fichier invalide'}), 400
 
-        # Vérifier que le fichier existe
-        chemin_excel = HISTORIQUE_DIR / filename
-        if not chemin_excel.exists():
+        data = get_extraction_data(DB_PATH, filename)
+        if not data:
             return jsonify({'erreur': 'Fichier non trouvé'}), 404
 
-        # Lire le fichier Excel
-        df = pd.read_excel(chemin_excel)
-
-        # Convertir en liste de dictionnaires, remplacer NaN par chaînes vides
-        data = df.fillna('').to_dict('records')
-
-        # Retourner les données en JSON
-        return jsonify({
-            'fichier': filename,
-            'nb_lignes': len(data),
-            'colonnes': list(df.columns),
-            'donnees': data
-        })
+        return jsonify(data)
 
     except Exception as e:
         import traceback
-        print(f"Erreur lecture Excel: {traceback.format_exc()}")
+        print(f"Erreur lecture données: {traceback.format_exc()}")
         return jsonify({'erreur': f'Erreur lecture fichier: {str(e)}'}), 500
 
 
 @app.route('/telecharger/<filename>')
 def telecharger(filename):
     try:
+        # Vérifier d'abord si le fichier existe sur disque (cache)
+        chemin_excel = HISTORIQUE_DIR / filename
+        if chemin_excel.exists():
+            return send_from_directory(HISTORIQUE_DIR, filename, as_attachment=True)
+
+        # Sinon, générer depuis la DB
+        df = generate_excel_from_db(DB_PATH, filename)
+        if df is None:
+            return jsonify({'erreur': 'Fichier non trouvé'}), 404
+
+        # Écrire le fichier Excel avec formatage
+        with pd.ExcelWriter(chemin_excel, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Enlèvements')
+            workbook = writer.book
+            worksheet = writer.sheets['Enlèvements']
+            colonnes_largeur = {
+                'A': 15, 'B': 18, 'C': 35, 'D': 25, 'E': 10,
+                'F': 15, 'G': 12, 'H': 12, 'I': 18, 'J': 18,
+            }
+            for col, width in colonnes_largeur.items():
+                worksheet.column_dimensions[col].width = width
+            worksheet.auto_filter.ref = worksheet.dimensions
+
         return send_from_directory(HISTORIQUE_DIR, filename, as_attachment=True)
     except Exception as e:
         return jsonify({'erreur': str(e)}), 404
@@ -747,15 +742,20 @@ def telecharger(filename):
 @app.route('/log/<filename>')
 def voir_log(filename):
     try:
-        chemin_log = LOGS_DIR / filename
+        # Chercher d'abord dans la DB
+        # Le filename est "log_YYYYMMDD_HHMMSS.md", on retrouve le nom Excel
+        timestamp_str = filename.replace('log_', '').replace('.md', '')
+        nom_excel = f"Enlevements_{timestamp_str}.xlsx"
+        contenu = get_extraction_log(DB_PATH, nom_excel)
 
-        if not chemin_log.exists():
-            return "Log non trouvé", 404
+        # Fallback : fichier sur disque
+        if not contenu:
+            chemin_log = LOGS_DIR / filename
+            if not chemin_log.exists():
+                return "Log non trouvé", 404
+            with open(chemin_log, 'r', encoding='utf-8') as f:
+                contenu = f.read()
 
-        with open(chemin_log, 'r', encoding='utf-8') as f:
-            contenu = f.read()
-
-        # Retourne en texte brut
         return f"<pre>{contenu}</pre>", 200, {'Content-Type': 'text/html; charset=utf-8'}
 
     except Exception as e:
