@@ -7,12 +7,27 @@ CRUD pour : chauffeurs, véhicules, tournées, zones, ville_zone_mapping,
 external_db_config, chauffeurs_sync, donnees_transport.
 """
 
+import re
 from datetime import datetime
 
 try:
     from bibile.database import get_db
 except ImportError:
     from database import get_db
+
+
+def normalize_ville(ville):
+    """Normalise un nom de ville : uppercase, supprime tirets/espaces en trop, ponctuation finale."""
+    if not ville:
+        return ''
+    v = ville.upper().strip()
+    # Supprimer ponctuation en fin de nom (tirets, points, virgules)
+    v = re.sub(r'[\s\-\.,;:]+$', '', v)
+    # Supprimer ponctuation en début de nom
+    v = re.sub(r'^[\s\-\.,;:]+', '', v)
+    # Réduire les espaces multiples
+    v = re.sub(r'\s+', ' ', v)
+    return v
 
 
 # ===== CHAUFFEURS =====
@@ -120,7 +135,7 @@ def list_tournees(db_path, date_tournee):
             SELECT te.ordre, e.*, vzm.lat, vzm.lon
             FROM tournee_enlevements te
             JOIN enlevements e ON e.id = te.enlevement_id
-            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
+            LEFT JOIN ville_zone_mapping vzm ON TRIM(UPPER(e.ville), ' -.,') = TRIM(vzm.ville, ' -.,')
             WHERE te.tournee_id = ?
             ORDER BY te.ordre
         """, (tournee['id'],)).fetchall()
@@ -220,7 +235,7 @@ def get_unassigned_enlevements(db_path, extraction_id=None, date=None):
     if extraction_id:
         rows = conn.execute("""
             SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
-            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
+            LEFT JOIN ville_zone_mapping vzm ON TRIM(UPPER(e.ville), ' -.,') = TRIM(vzm.ville, ' -.,')
             WHERE e.extraction_id = ?
             AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
@@ -236,7 +251,7 @@ def get_unassigned_enlevements(db_path, extraction_id=None, date=None):
                 GROUP BY e2.num_enlevement, e2.societe
             )
             SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
-            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
+            LEFT JOIN ville_zone_mapping vzm ON TRIM(UPPER(e.ville), ' -.,') = TRIM(vzm.ville, ' -.,')
             WHERE e.id IN (SELECT latest_id FROM latest)
             AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
@@ -249,7 +264,7 @@ def get_unassigned_enlevements(db_path, extraction_id=None, date=None):
                 GROUP BY e2.num_enlevement, e2.societe
             )
             SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
-            LEFT JOIN ville_zone_mapping vzm ON UPPER(e.ville) = vzm.ville
+            LEFT JOIN ville_zone_mapping vzm ON TRIM(UPPER(e.ville), ' -.,') = TRIM(vzm.ville, ' -.,')
             WHERE e.id IN (SELECT latest_id FROM latest)
             AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
@@ -318,7 +333,7 @@ def list_ville_zone_mapping(db_path):
 
 def save_ville_zone(db_path, data):
     conn = get_db(db_path)
-    ville = data['ville'].upper().strip()
+    ville = normalize_ville(data['ville'])
     existing = conn.execute("SELECT id FROM ville_zone_mapping WHERE ville = ?", (ville,)).fetchone()
     if existing:
         conn.execute("""
@@ -339,11 +354,11 @@ def get_villes_inconnues(db_path):
     """Retourne les villes présentes dans les enlèvements mais pas dans le mapping."""
     conn = get_db(db_path)
     rows = conn.execute("""
-        SELECT DISTINCT e.ville, COUNT(*) as nb
+        SELECT DISTINCT TRIM(UPPER(e.ville), ' -.,') as ville, COUNT(*) as nb
         FROM enlevements e
         WHERE e.ville IS NOT NULL AND e.ville != ''
-        AND e.ville NOT IN (SELECT ville FROM ville_zone_mapping)
-        GROUP BY e.ville
+        AND TRIM(UPPER(e.ville), ' -.,') NOT IN (SELECT TRIM(ville, ' -.,') FROM ville_zone_mapping)
+        GROUP BY TRIM(UPPER(e.ville), ' -.,')
         ORDER BY nb DESC
     """).fetchall()
     conn.close()
