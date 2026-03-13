@@ -133,8 +133,11 @@ def main():
     os.environ['BIBILE_DB_PATH'] = str(db_path)
 
     # 3. Premier lancement ? Proposer l'import de l'ancien historique
-    if len(list_extractions(db_path)) == 0:
+    #    On utilise un fichier marqueur pour ne poser la question qu'une seule fois
+    first_launch_marker = data_dir / '.import_done'
+    if not first_launch_marker.exists():
         import_ancien_historique(db_path)
+        first_launch_marker.write_text('ok')
 
     # 4. Trouver un port libre
     port = find_free_port()
