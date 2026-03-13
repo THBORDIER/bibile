@@ -29,6 +29,7 @@ RÈGLES IMPORTANTES :
 
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 import os
+import sys
 import re
 import pandas as pd
 from datetime import datetime
@@ -36,13 +37,22 @@ import json
 from pathlib import Path
 from openpyxl.styles import Font, PatternFill, Alignment
 
-app = Flask(__name__)
+# Flask : adapter les chemins pour le mode PyInstaller
+BASE_DIR = Path(__file__).parent
+if getattr(sys, '_MEIPASS', None):
+    bundle_dir = Path(sys._MEIPASS) / 'bibile'
+    app = Flask(__name__,
+                template_folder=str(bundle_dir / 'templates'),
+                static_folder=str(bundle_dir / 'static'))
+else:
+    app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
-# Dossiers
-BASE_DIR = Path(__file__).parent
-LOGS_DIR = BASE_DIR / 'logs'
-HISTORIQUE_DIR = BASE_DIR / 'historique'
+# Dossiers de donnees (historique + logs)
+# En mode desktop, BIBILE_DATA_DIR pointe vers %APPDATA%/Bibile
+DATA_DIR = Path(os.environ.get('BIBILE_DATA_DIR', str(BASE_DIR)))
+LOGS_DIR = DATA_DIR / 'logs'
+HISTORIQUE_DIR = DATA_DIR / 'historique'
 
 # Créer les dossiers s'ils n'existent pas
 LOGS_DIR.mkdir(exist_ok=True)
@@ -570,22 +580,22 @@ def generer_excel(lignes_tableau, nom_fichier, log_file):
 # Routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', active_page='accueil')
 
 
 @app.route('/aide')
 def aide():
-    return render_template('aide.html')
+    return render_template('aide.html', active_page='aide')
 
 
 @app.route('/historique')
 def historique():
-    return render_template('historique.html')
+    return render_template('historique.html', active_page='historique')
 
 
 @app.route('/donnees')
 def donnees():
-    return render_template('donnees.html')
+    return render_template('donnees.html', active_page='donnees')
 
 
 @app.route('/generer', methods=['POST'])

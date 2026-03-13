@@ -2,18 +2,33 @@
 
 ## Architecture
 
-Application Flask mono-fichier backend pour extraire les donnees d'enlevements depuis du texte PDF Hillebrand et generer des fichiers Excel.
+Application desktop (pywebview + Flask) pour extraire les donnees d'enlevements depuis du texte PDF Hillebrand et generer des fichiers Excel.
 
 ```
+main.py                # Entry point desktop (pywebview + Flask en thread)
 bibile/
-  server.py          # Backend Flask (toute la logique metier)
-  launcher.pyw       # Lanceur silencieux (sans console)
-  templates/         # Pages HTML (index, aide, historique, donnees)
-  static/            # CSS + JS frontend
-  historique/        # Fichiers Excel generes
-  logs/              # Logs de traitement (Markdown)
-  deployment/        # Scripts deploiement Linux
+  server.py            # Backend Flask (toute la logique metier)
+  templates/
+    base.html          # Template de base (sidebar + layout dark theme)
+    index.html         # Page d'accueil (extraction)
+    donnees.html       # Visualisation des donnees
+    historique.html    # Historique des fichiers
+    aide.html          # Aide / documentation
+  static/
+    css/style.css      # Dark theme (inspire SOCIALIS)
+    js/app.js          # JS page accueil
+    js/donnees.js      # JS page donnees
+    js/historique.js   # JS page historique
+bibile.spec            # Config PyInstaller
+build.bat              # Script de build .exe
 ```
+
+## Mode desktop
+
+- `main.py` demarre Flask dans un thread daemon, puis ouvre une fenetre native via pywebview
+- En mode PyInstaller bundle : templates/static depuis `sys._MEIPASS`, donnees dans `%APPDATA%/Bibile/`
+- En mode dev : donnees dans `bibile/` (comportement original)
+- Variable d'environnement `BIBILE_DATA_DIR` controle le dossier de donnees
 
 ## Fonctions cles (server.py)
 
@@ -34,23 +49,13 @@ bibile/
 | VMF | Nombre indique | Compte |
 | LOOSE LOADED | Nombre indique | Compte |
 
-## Regles de controle qualite
-
-- "Au total:" dans le PDF source ne compte que EURO et VMF
-- Le QC ne verifie que EURO/VMF/LOOSE LOADED, pas HALF/PART
-- Poids et colis sont verifies pour tous les types
-
-## Structure du texte PDF
-
-Le texte copie du PDF contient des en-tetes/pieds de page repetes a chaque saut de page. Ces blocs sont supprimes par `nettoyer_texte()` avant le parsing.
-
-Signature du pied de page : `Hillebrand Gori France SAS - 11 Rue Louis et Gaston Chevrolet`
-Signature de la ref globale : `Notre Ref: FRBGXXXXXX (Merci de reporter...)`
-
 ## Commandes
 
 ```bash
-# Demarrer le serveur (port 5001)
+# Lancer l'app desktop (mode dev)
+python main.py
+
+# Lancer Flask seul (mode navigateur, debug)
 python bibile/server.py
 
 # Lancer les tests
@@ -58,8 +63,9 @@ python test_full_process.py
 python test_dynamic_mapping.py
 python test_bug_fixes.py
 
-# Installation
-bibile/INSTALLER.bat
+# Builder le .exe
+build.bat
+# ou: pyinstaller bibile.spec --clean
 ```
 
 ## Donnees de test
