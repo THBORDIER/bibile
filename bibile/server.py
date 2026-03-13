@@ -1394,8 +1394,23 @@ def init_sync_manager():
 
 @app.route('/api/update/check')
 def api_update_check():
-    """Retourne les infos de mise a jour si disponible."""
+    """Retourne les infos de mise a jour si disponible.
+
+    Si le thread background n'a rien trouvé, fait un check live.
+    """
     global update_available
+
+    # Si pas encore de résultat, tenter un check live
+    if not update_available:
+        try:
+            from bibile.updater import check_for_update
+            from bibile.version import __version__
+            result = check_for_update(__version__)
+            if result:
+                update_available = result
+        except Exception as e:
+            return jsonify({'available': False, 'debug': str(e)})
+
     if update_available:
         return jsonify({
             'available': True,
@@ -1403,6 +1418,36 @@ def api_update_check():
             'changelog': update_available.get('changelog', ''),
         })
     return jsonify({'available': False})
+
+
+@app.route('/api/update/debug')
+def api_update_debug():
+    """Diagnostic: teste le check de mise a jour et retourne les details."""
+    try:
+        from bibile.version import __version__
+        from bibile.updater import GITHUB_API_URL, check_for_update
+        import urllib.request
+        import json
+
+        # Test brut de l'API GitHub
+        req = urllib.request.Request(GITHUB_API_URL, headers={'User-Agent': 'Bibile-Updater'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            remote_tag = data.get('tag_name', '')
+            assets = [a['name'] for a in data.get('assets', [])]
+
+        result = check_for_update(__version__)
+
+        return jsonify({
+            'local_version': __version__,
+            'github_url': GITHUB_API_URL,
+            'remote_tag': remote_tag,
+            'assets': assets,
+            'update_result': result,
+            'update_available_cache': update_available is not None,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'type': type(e).__name__})
 
 
 @app.route('/api/update/apply', methods=['POST'])
