@@ -32,32 +32,91 @@ logger = logging.getLogger('bibile.sync')
 
 
 def _get_connection(config):
-    """Crée une connexion à la BDD DBI (SQL Server Azure)."""
-    import pymssql
+    """Crée une connexion à la BDD DBI (SQL Server Azure).
 
+    Tente pyodbc (ODBC Driver 17/18) en priorité, fallback pymssql.
+    pyodbc est le driver recommandé par Microsoft pour Azure SQL.
+    """
     host = config['host']
+    port = int(config.get('port', 1433))
     user = config['username']
+    password = config.get('password_encrypted', '')
+    database = config['database_name']
+
+    # Essayer pyodbc d'abord (meilleur support Azure SQL + TLS)
+    try:
+        import pyodbc
+        # Chercher le meilleur driver ODBC disponible
+        drivers = pyodbc.drivers()
+        odbc_driver = None
+        for preferred in ['ODBC Driver 18 for SQL Server', 'ODBC Driver 17 for SQL Server']:
+            if preferred in drivers:
+                odbc_driver = preferred
+                break
+
+        if odbc_driver:
+            conn_str = (
+                f"DRIVER={{{odbc_driver}}};"
+                f"SERVER={host},{port};"
+                f"DATABASE={database};"
+                f"UID={user};"
+                f"PWD={password};"
+                f"Encrypt=yes;"
+                f"TrustServerCertificate=no;"
+                f"Connection Timeout=15;"
+            )
+            conn = pyodbc.connect(conn_str)
+            conn.timeout = 30
+            return conn
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(f"pyodbc echoue, fallback pymssql: {e}")
+
+    # Fallback pymssql
+    import pymssql
 
     # Azure SQL exige le format user@servername pour l'authentification
     if '.database.windows.net' in host and '@' not in user:
-        server_short = host.split('.')[0]  # ex: dbi-production-sql-server
+        server_short = host.split('.')[0]
         user = f"{user}@{server_short}"
 
-    # Forcer les variables FreeTDS pour Azure (TLS obligatoire)
     import os
     os.environ.setdefault('TDSVER', '7.3')
 
     return pymssql.connect(
         server=host,
-        port=int(config.get('port', 1433)),
+        port=port,
         user=user,
-        password=config.get('password_encrypted', ''),
-        database=config['database_name'],
+        password=password,
+        database=database,
         login_timeout=15,
         timeout=30,
         as_dict=True,
         tds_version='7.3',
     )
+
+
+def _row_to_dict(cursor, row):
+    """Convertit un row (pyodbc ou pymssql) en dict."""
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row
+    # pyodbc Row: cursor.description contient les noms de colonnes
+    columns = [col[0] for col in cursor.description]
+    return dict(zip(columns, row))
+
+
+def _fetchall_dict(cursor):
+    """Fetch all rows as list of dicts (compatible pyodbc et pymssql)."""
+    rows = cursor.fetchall()
+    if not rows:
+        return []
+    if isinstance(rows[0], dict):
+        return rows
+    columns = [col[0] for col in cursor.description]
+    return [dict(zip(columns, row)) for row in rows]
 
 
 def test_connection(config):
@@ -69,11 +128,13 @@ def test_connection(config):
         cursor.fetchone()
         # Compter les véhicules actifs
         cursor.execute("SELECT COUNT(*) AS cnt FROM Vehicle WHERE active = 1")
-        row = cursor.fetchone()
+        row = _row_to_dict(cursor, cursor.fetchone())
         nb = row['cnt'] if row else 0
         cursor.close()
         conn.close()
-        return True, f"Connexion reussie — {nb} vehicule(s) actif(s)"
+        # Indiquer quel driver a été utilisé
+        driver = 'pyodbc' if hasattr(conn, 'getinfo') else 'pymssql'
+        return True, f"Connexion reussie ({driver}) — {nb} vehicule(s) actif(s)"
     except Exception as e:
         return False, str(e)
 
@@ -90,7 +151,7 @@ def fetch_external_vehicles(config):
             ORDER BY licensePlateNumber
         """)
         vehicles = []
-        for row in cursor.fetchall():
+        for row in _fetchall_dict(cursor):
             vehicles.append({
                 'externe_id': str(row['id']),
                 'immatriculation': row['licensePlateNumber'] or '',
@@ -132,7 +193,7 @@ def fetch_vehicle_positions(config):
             ORDER BY v.licensePlateNumber
         """)
         positions = []
-        for row in cursor.fetchall():
+        for row in _fetchall_dict(cursor):
             if row['latitude'] is None or row['longitude'] is None:
                 continue
             ts_ms = row['gpsTimestampEpochMs'] or 0
@@ -282,7 +343,7 @@ class SyncManager:
             """, (*int_ids, since_epoch_ms))
 
             daily_data = {}
-            for row in cursor.fetchall():
+            for row in _fetchall_dict(cursor):
                 key = (str(row['vehicleId']), str(row['date_donnee']))
                 daily_data[key] = {
                     'kilometres': float(row['kilometres'] or 0),
@@ -304,7 +365,7 @@ class SyncManager:
             """, (*int_ids, since_epoch_ms))
 
             fuel_data = {}
-            for row in cursor.fetchall():
+            for row in _fetchall_dict(cursor):
                 key = (str(row['vehicleId']), str(row['date_donnee']))
                 fuel_data[key] = float(row['consommation_litres'] or 0)
 

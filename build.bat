@@ -5,7 +5,7 @@ echo ============================================
 echo.
 
 echo [1/3] Installation des dependances de build...
-python -m pip install pyinstaller pywebview flask pandas openpyxl >nul 2>&1
+python -m pip install pyinstaller pywebview flask pandas openpyxl pyodbc pymssql >nul 2>&1
 
 echo [2/3] Nettoyage des anciens builds...
 if exist "dist" rmdir /s /q dist

@@ -24,6 +24,7 @@ a = Analysis(
         'fitz',
         'pymupdf',
         'pymssql',
+        'pyodbc',
     ],
     hookspath=[],
     hooksconfig={},
