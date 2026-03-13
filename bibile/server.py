@@ -61,8 +61,11 @@ DB_PATH = Path(os.environ.get('BIBILE_DB_PATH', str(DATA_DIR / 'bibile.db')))
 LOGS_DIR.mkdir(exist_ok=True)
 HISTORIQUE_DIR.mkdir(exist_ok=True)
 
-# Initialiser la DB si lancé directement (sans main.py)
-from bibile.database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db
+# Initialiser la DB
+try:
+    from bibile.database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db, get_statistiques, find_duplicates, update_enlevements
+except ImportError:
+    from database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db, get_statistiques, find_duplicates, update_enlevements
 init_db(DB_PATH)
 
 
@@ -605,6 +608,101 @@ def donnees():
     return render_template('donnees.html', active_page='donnees')
 
 
+@app.route('/statistiques')
+def statistiques():
+    return render_template('statistiques.html', active_page='statistiques')
+
+
+@app.route('/api/statistiques')
+def api_statistiques():
+    try:
+        date_debut = request.args.get('date_debut')
+        date_fin = request.args.get('date_fin')
+        stats = get_statistiques(DB_PATH, date_debut, date_fin)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/upload-pdf', methods=['POST'])
+def upload_pdf():
+    """Extrait le texte d'un fichier PDF uploadé."""
+    try:
+        fichier = request.files.get('pdf')
+        if not fichier:
+            return jsonify({'erreur': 'Aucun fichier fourni'}), 400
+
+        if not fichier.filename.lower().endswith('.pdf'):
+            return jsonify({'erreur': 'Le fichier doit être un PDF'}), 400
+
+        import fitz
+        doc = fitz.open(stream=fichier.read(), filetype="pdf")
+        texte = "\n".join(page.get_text() for page in doc)
+        doc.close()
+
+        if not texte.strip():
+            return jsonify({'erreur': 'Aucun texte extractible dans ce PDF'}), 400
+
+        return jsonify({'texte': texte})
+
+    except Exception as e:
+        return jsonify({'erreur': f'Erreur lecture PDF: {str(e)}'}), 500
+
+
+# Stockage temporaire des sessions de génération (pour le workflow doublons)
+_sessions_temp = {}
+
+
+def _parse_and_log(texte):
+    """Parse le texte et génère le log. Retourne (lignes, erreurs, nom_excel, chemin_excel, chemin_log, log_contenu)."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nom_excel = f"Enlevements_{timestamp}.xlsx"
+    nom_log = f"log_{timestamp}.md"
+
+    chemin_excel = HISTORIQUE_DIR / nom_excel
+    chemin_log = LOGS_DIR / nom_log
+
+    with open(chemin_log, 'w', encoding='utf-8') as f:
+        f.write(f"# Log de génération - {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
+
+    log_to_file("=" * 70, chemin_log)
+    log_to_file("BIBILE - Extracteur d'enlèvements Hillebrand", chemin_log)
+    log_to_file("=" * 70, chemin_log)
+    log_to_file("", chemin_log)
+
+    lignes_tableau, erreurs_controle = parser_texte(texte, chemin_log)
+
+    log_to_file("", chemin_log)
+    log_to_file("=" * 70, chemin_log)
+    if erreurs_controle:
+        log_to_file("TERMINE AVEC ALERTES!", chemin_log)
+        for erreur in erreurs_controle:
+            log_to_file(f"  {erreur}", chemin_log)
+    else:
+        log_to_file("TERMINE - Tous les controles OK!", chemin_log)
+    log_to_file(f"Fichier cree: {nom_excel}", chemin_log)
+    log_to_file("=" * 70, chemin_log)
+
+    log_contenu = None
+    if chemin_log.exists():
+        with open(chemin_log, 'r', encoding='utf-8') as f:
+            log_contenu = f.read()
+
+    return lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu
+
+
+def _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu):
+    """Génère l'Excel, sauvegarde en DB, et retourne le fichier."""
+    generer_excel(lignes_tableau, chemin_excel, chemin_log)
+    save_extraction(DB_PATH, nom_excel, datetime.now(), lignes_tableau, log_contenu)
+    return send_file(
+        chemin_excel,
+        as_attachment=True,
+        download_name=nom_excel,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
 @app.route('/generer', methods=['POST'])
 def generer():
     try:
@@ -614,70 +712,126 @@ def generer():
         if not texte:
             return jsonify({'erreur': 'Aucun texte fourni'}), 400
 
-        # Créer les noms de fichiers
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        nom_excel = f"Enlevements_{timestamp}.xlsx"
-        nom_log = f"log_{timestamp}.md"
-
-        chemin_excel = HISTORIQUE_DIR / nom_excel
-        chemin_log = LOGS_DIR / nom_log
-
-        # Créer le fichier de log
-        with open(chemin_log, 'w', encoding='utf-8') as f:
-            f.write(f"# Log de génération - {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
-
-        log_to_file("=" * 70, chemin_log)
-        log_to_file("BIBILE - Extracteur d'enlèvements Hillebrand", chemin_log)
-        log_to_file("=" * 70, chemin_log)
-        log_to_file("", chemin_log)
-
-        # Parser le texte
-        lignes_tableau, erreurs_controle = parser_texte(texte, chemin_log)
+        lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu = _parse_and_log(texte)
 
         if len(lignes_tableau) == 0:
-            log_to_file("ERREUR: Aucun enlèvement trouvé", chemin_log)
             return jsonify({'erreur': 'Aucun enlèvement trouvé dans le texte. Vérifiez que vous avez copié le bon document.'}), 400
 
-        # Générer l'Excel
-        generer_excel(lignes_tableau, chemin_excel, chemin_log)
+        # Vérifier les doublons
+        duplicates = find_duplicates(DB_PATH, lignes_tableau)
 
-        log_to_file("", chemin_log)
-        log_to_file("=" * 70, chemin_log)
-        if erreurs_controle:
-            log_to_file("TERMINE AVEC ALERTES!", chemin_log)
-            for erreur in erreurs_controle:
-                log_to_file(f"  {erreur}", chemin_log)
-        else:
-            log_to_file("TERMINE - Tous les controles OK!", chemin_log)
-        log_to_file(f"Fichier cree: {nom_excel}", chemin_log)
-        log_to_file("=" * 70, chemin_log)
+        if duplicates:
+            # Stocker la session temporaire
+            import uuid
+            session_id = str(uuid.uuid4())[:8]
+            _sessions_temp[session_id] = {
+                'lignes_tableau': lignes_tableau,
+                'nom_excel': nom_excel,
+                'chemin_excel': str(chemin_excel),
+                'chemin_log': str(chemin_log),
+                'log_contenu': log_contenu,
+                'duplicates': duplicates,
+            }
 
-        # Sauvegarder dans la base SQLite
-        log_contenu = None
-        if chemin_log.exists():
-            with open(chemin_log, 'r', encoding='utf-8') as f:
-                log_contenu = f.read()
-        save_extraction(DB_PATH, nom_excel, datetime.now(), lignes_tableau, log_contenu)
+            # Compter les nouveaux vs doublons
+            dup_keys = set(duplicates.keys())
+            nb_doublons = 0
+            nb_nouveaux = 0
+            for ligne in lignes_tableau:
+                num = ligne.get('N° ENLÈVEMENT')
+                soc = ligne.get('SOCIÉTÉ / DOMAINE', '')
+                if (num, soc) in dup_keys:
+                    nb_doublons += 1
+                else:
+                    nb_nouveaux += 1
 
-        # Retourner le fichier Excel
-        return send_file(
-            chemin_excel,
-            as_attachment=True,
-            download_name=nom_excel,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+            details = []
+            for (num, soc), info in list(duplicates.items())[:5]:
+                details.append({
+                    'num': num,
+                    'societe': soc,
+                    'extraction_date': info['extraction_date'],
+                })
+
+            return jsonify({
+                'doublons': True,
+                'session_id': session_id,
+                'nb_total': len(lignes_tableau),
+                'nb_doublons': nb_doublons,
+                'nb_nouveaux': nb_nouveaux,
+                'details_doublons': details,
+            })
+
+        # Pas de doublons : génération directe
+        return _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu)
 
     except Exception as e:
         import traceback
-        error_msg = str(e)
-        traceback_str = traceback.format_exc()
+        return jsonify({'erreur': f'Erreur lors de la génération: {str(e)}'}), 500
 
-        # Log l'erreur
-        if 'chemin_log' in locals():
-            log_to_file(f"ERREUR: {error_msg}", chemin_log)
-            log_to_file(traceback_str, chemin_log)
 
-        return jsonify({'erreur': f'Erreur lors de la génération: {error_msg}'}), 500
+@app.route('/generer/confirmer', methods=['POST'])
+def generer_confirmer():
+    """Confirme la génération après détection de doublons."""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        action = data.get('action')  # 'update', 'add_all', 'skip_duplicates'
+
+        if session_id not in _sessions_temp:
+            return jsonify({'erreur': 'Session expirée. Veuillez relancer la génération.'}), 400
+
+        session = _sessions_temp.pop(session_id)
+        lignes_tableau = session['lignes_tableau']
+        nom_excel = session['nom_excel']
+        chemin_excel = Path(session['chemin_excel'])
+        chemin_log = Path(session['chemin_log'])
+        log_contenu = session['log_contenu']
+        duplicates = session['duplicates']
+
+        if action == 'update':
+            # Mettre à jour les enlèvements existants + ajouter les nouveaux
+            nb_updated = update_enlevements(DB_PATH, lignes_tableau, duplicates)
+
+            # Filtrer pour ne garder que les nouveaux dans l'extraction
+            dup_keys = set(duplicates.keys())
+            nouveaux = [l for l in lignes_tableau if (l.get('N° ENLÈVEMENT'), l.get('SOCIÉTÉ / DOMAINE', '')) not in dup_keys]
+
+            if nouveaux:
+                # Sauvegarder les nouveaux comme nouvelle extraction
+                generer_excel(lignes_tableau, chemin_excel, chemin_log)  # Excel complet pour le téléchargement
+                save_extraction(DB_PATH, nom_excel, datetime.now(), nouveaux, log_contenu)
+            else:
+                # Que des mises à jour, générer quand même l'Excel pour téléchargement
+                generer_excel(lignes_tableau, chemin_excel, chemin_log)
+
+            return send_file(
+                chemin_excel,
+                as_attachment=True,
+                download_name=nom_excel,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+        elif action == 'add_all':
+            # Tout ajouter comme nouvelle extraction (comportement classique)
+            return _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu)
+
+        elif action == 'skip_duplicates':
+            # N'ajouter que les nouveaux enlèvements
+            dup_keys = set(duplicates.keys())
+            nouveaux = [l for l in lignes_tableau if (l.get('N° ENLÈVEMENT'), l.get('SOCIÉTÉ / DOMAINE', '')) not in dup_keys]
+
+            if not nouveaux:
+                return jsonify({'erreur': 'Tous les enlèvements sont des doublons. Rien à ajouter.'}), 400
+
+            return _finalize_generation(nouveaux, nom_excel, chemin_excel, chemin_log, log_contenu)
+
+        else:
+            return jsonify({'erreur': f'Action inconnue: {action}'}), 400
+
+    except Exception as e:
+        import traceback
+        return jsonify({'erreur': f'Erreur: {str(e)}'}), 500
 
 
 @app.route('/api/historique')

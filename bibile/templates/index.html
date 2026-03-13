@@ -1,16 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Bibile - Extracteur d'Enlèvements{% endblock %}
 {% block page_title %}Extracteur d'enlèvements{% endblock %}
-{% block page_subtitle %}Collez le contenu de votre PDF Hillebrand pour générer un fichier Excel{% endblock %}
+{% block page_subtitle %}Glissez un PDF ou collez du texte pour générer un fichier Excel{% endblock %}
 
 {% block content %}
     <div class="card">
         <div class="card-header">
-            <h2>Collez votre texte PDF ici</h2>
+            <h2>Importer votre PDF</h2>
         </div>
-        <p class="instruction">
-            Ouvrez votre PDF, sélectionnez tout (<kbd>Ctrl+A</kbd>), copiez (<kbd>Ctrl+C</kbd>) et collez ci-dessous (<kbd>Ctrl+V</kbd>)
-        </p>
+
+        <div id="dropZone" class="drop-zone">
+            <div class="drop-zone-content">
+                <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="12" y1="18" x2="12" y2="12"/>
+                    <polyline points="9 15 12 12 15 15"/>
+                </svg>
+                <p class="drop-zone-text">Glissez votre fichier PDF ici</p>
+                <p class="drop-zone-hint">ou <label for="fileInput" class="drop-zone-browse">parcourir</label></p>
+                <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+            </div>
+            <div id="dropZoneProgress" class="drop-zone-progress hidden">
+                <div class="drop-zone-spinner"></div>
+                <p>Extraction du texte en cours...</p>
+            </div>
+        </div>
+
+        <div class="separator-or"><span>ou collez votre texte</span></div>
 
         <div class="textarea-container">
             <textarea
@@ -56,6 +73,21 @@
             </div>
             <h3>Traitement rapide</h3>
             <p>Résultats en quelques secondes</p>
+        </div>
+    </div>
+
+    <!-- Modal doublons -->
+    <div id="duplicateModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Enlèvements déjà existants</h3>
+            <p id="duplicateMessage"></p>
+            <div id="duplicateDetails" style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);"></div>
+            <div class="modal-actions">
+                <button class="btn-primary-modal" data-action="update">Mettre à jour les existants + ajouter les nouveaux</button>
+                <button data-action="skip_duplicates">Ignorer les doublons (n'ajouter que les nouveaux)</button>
+                <button data-action="add_all">Tout ajouter comme nouvelle extraction</button>
+                <button data-action="cancel" style="color: var(--text-muted);">Annuler</button>
+            </div>
         </div>
     </div>
 {% endblock %}

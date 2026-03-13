@@ -5,6 +5,9 @@ const clearBtn = document.getElementById('clearBtn');
 const charCount = document.getElementById('charCount');
 const statusMessage = document.getElementById('statusMessage');
 const progressBar = document.getElementById('progressBar');
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const dropZoneProgress = document.getElementById('dropZoneProgress');
 
 // Update character count
 function updateCharCount() {
@@ -81,61 +84,45 @@ generateBtn.addEventListener('click', async () => {
     hideStatus();
 
     try {
-        // Send request to server
         const response = await fetch('/generer', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ texte: text })
         });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.erreur || 'Erreur lors de la génération');
-        }
+        // Check if the response is JSON (duplicate detection) or blob (Excel)
+        const contentType = response.headers.get('Content-Type') || '';
 
-        // Get the blob
-        const blob = await response.blob();
+        if (contentType.includes('application/json')) {
+            const data = await response.json();
 
-        // Get filename from header
-        const contentDisposition = response.headers.get('Content-Disposition');
-        let filename = 'Enlevements.xlsx';
+            if (data.erreur) {
+                throw new Error(data.erreur);
+            }
 
-        if (contentDisposition) {
-            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
-            if (filenameMatch) {
-                filename = filenameMatch[1];
+            if (data.doublons) {
+                // Show duplicate modal
+                hideProgress();
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = 'Générer le fichier Excel';
+                showDuplicateModal(data);
+                return;
             }
         }
 
-        // Create download link
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
+        if (!response.ok) {
+            throw new Error('Erreur lors de la génération');
+        }
 
-        // Cleanup
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        // Show success message
-        showStatus('✅ Fichier Excel généré avec succès ! Le téléchargement a commencé.', 'success');
-
-        // Optional: Clear text after successful generation
-        // textInput.value = '';
-        // updateCharCount();
+        // Download the Excel blob
+        downloadBlob(response);
 
     } catch (error) {
         console.error('Error:', error);
-        showStatus(`❌ Erreur : ${error.message}`, 'error');
+        showStatus(`Erreur : ${error.message}`, 'error');
     } finally {
-        // Re-enable button
         generateBtn.disabled = false;
-        generateBtn.innerHTML = '<span class="btn-icon">⚡</span> Générer le fichier Excel';
+        generateBtn.innerHTML = 'Générer le fichier Excel';
         hideProgress();
     }
 });
@@ -182,3 +169,170 @@ textInput.addEventListener('input', () => {
 function clearDraft() {
     localStorage.removeItem(STORAGE_KEY);
 }
+
+// ===== Download Excel blob =====
+async function downloadBlob(response) {
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = 'Enlevements.xlsx';
+    if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?(.+)"?/);
+        if (match) filename = match[1];
+    }
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    showStatus('Fichier Excel généré avec succès ! Le téléchargement a commencé.', 'success');
+}
+
+// ===== Duplicate Modal =====
+const duplicateModal = document.getElementById('duplicateModal');
+
+function showDuplicateModal(data) {
+    const msg = document.getElementById('duplicateMessage');
+    const details = document.getElementById('duplicateDetails');
+
+    msg.textContent = `${data.nb_doublons} enlèvement(s) sur ${data.nb_total} existent déjà en base. ${data.nb_nouveaux} nouveau(x).`;
+
+    // Show some duplicate details
+    if (data.details_doublons && data.details_doublons.length > 0) {
+        let html = '<div style="margin-top: 8px;">';
+        for (const d of data.details_doublons) {
+            const date = new Date(d.extraction_date).toLocaleDateString('fr-FR');
+            html += `<div style="padding: 4px 0;">Enlèvement ${d.num} — ${d.societe} <span style="color: var(--text-muted);">(${date})</span></div>`;
+        }
+        if (data.nb_doublons > 5) {
+            html += `<div style="padding: 4px 0; color: var(--text-muted);">... et ${data.nb_doublons - 5} autre(s)</div>`;
+        }
+        html += '</div>';
+        details.innerHTML = html;
+    } else {
+        details.innerHTML = '';
+    }
+
+    // Store session_id for confirmation
+    duplicateModal.dataset.sessionId = data.session_id;
+    duplicateModal.classList.add('visible');
+}
+
+// Handle modal button clicks
+duplicateModal.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+
+    const action = btn.dataset.action;
+    const sessionId = duplicateModal.dataset.sessionId;
+
+    duplicateModal.classList.remove('visible');
+
+    if (action === 'cancel') return;
+
+    // Send confirmation
+    generateBtn.disabled = true;
+    generateBtn.innerHTML = '<span class="btn-icon">⏳</span> Génération en cours...';
+    showProgress();
+    hideStatus();
+
+    try {
+        const response = await fetch('/generer/confirmer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, action: action })
+        });
+
+        const contentType = response.headers.get('Content-Type') || '';
+        if (contentType.includes('application/json')) {
+            const data = await response.json();
+            if (data.erreur) throw new Error(data.erreur);
+        }
+
+        if (!response.ok) throw new Error('Erreur lors de la confirmation');
+
+        await downloadBlob(response);
+
+    } catch (error) {
+        console.error('Error:', error);
+        showStatus(`Erreur : ${error.message}`, 'error');
+    } finally {
+        generateBtn.disabled = false;
+        generateBtn.innerHTML = 'Générer le fichier Excel';
+        hideProgress();
+    }
+});
+
+// ===== PDF Drag-and-Drop =====
+
+async function uploadPDF(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+        showStatus('Ce fichier n\'est pas un PDF.', 'error');
+        return;
+    }
+
+    // Show loading state
+    dropZone.classList.add('drop-zone-loading');
+    dropZoneProgress.classList.remove('hidden');
+    hideStatus();
+
+    try {
+        const formData = new FormData();
+        formData.append('pdf', file);
+
+        const response = await fetch('/upload-pdf', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.erreur || 'Erreur lors de l\'extraction du PDF');
+        }
+
+        // Fill textarea with extracted text
+        textInput.value = data.texte;
+        updateCharCount();
+        showStatus('PDF importé avec succès. Vérifiez le texte puis cliquez sur Générer.', 'success');
+
+    } catch (error) {
+        console.error('PDF upload error:', error);
+        showStatus(`Erreur : ${error.message}`, 'error');
+    } finally {
+        dropZone.classList.remove('drop-zone-loading');
+        dropZoneProgress.classList.add('hidden');
+    }
+}
+
+// Drag events
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drop-zone-active');
+});
+
+dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drop-zone-active');
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drop-zone-active');
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        uploadPDF(files[0]);
+    }
+});
+
+// File input (browse button)
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        uploadPDF(fileInput.files[0]);
+        fileInput.value = ''; // Reset for re-upload
+    }
+});

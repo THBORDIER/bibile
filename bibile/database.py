@@ -83,6 +83,84 @@ def init_db(db_path):
     conn.close()
 
 
+def find_duplicates(db_path, lignes_tableau):
+    """
+    Cherche les enlèvements existants en DB qui matchent par num_enlevement + societe.
+    Retourne un dict: {(num, societe): {extraction_date, extraction_nom, enlevement_id}}
+    """
+    conn = get_db(db_path)
+    duplicates = {}
+
+    for ligne in lignes_tableau:
+        num = ligne.get('N° ENLÈVEMENT') or ligne.get('num_enlevement')
+        societe = ligne.get('SOCIÉTÉ / DOMAINE') or ligne.get('societe', '')
+
+        if num is None or not societe:
+            continue
+
+        row = conn.execute("""
+            SELECT en.id, en.extraction_id, e.nom_fichier, e.date_creation
+            FROM enlevements en
+            JOIN extractions e ON e.id = en.extraction_id
+            WHERE en.num_enlevement = ? AND en.societe = ?
+            ORDER BY e.date_creation DESC LIMIT 1
+        """, (num, societe)).fetchone()
+
+        if row:
+            key = (num, societe)
+            if key not in duplicates:
+                duplicates[key] = {
+                    'enlevement_id': row['id'],
+                    'extraction_id': row['extraction_id'],
+                    'extraction_nom': row['nom_fichier'],
+                    'extraction_date': row['date_creation'],
+                }
+
+    conn.close()
+    return duplicates
+
+
+def update_enlevements(db_path, lignes_tableau, duplicates):
+    """
+    Met à jour les enlèvements existants avec les nouvelles données.
+    Les lignes qui matchent un doublon sont mises à jour in-place.
+    Les lignes nouvelles sont ignorées (doivent être sauvées séparément).
+    """
+    conn = get_db(db_path)
+    updated = 0
+
+    for ligne in lignes_tableau:
+        num = ligne.get('N° ENLÈVEMENT') or ligne.get('num_enlevement')
+        societe = ligne.get('SOCIÉTÉ / DOMAINE') or ligne.get('societe', '')
+        key = (num, societe)
+
+        if key not in duplicates:
+            continue
+
+        enlevement_id = duplicates[key]['enlevement_id']
+        conn.execute("""
+            UPDATE enlevements SET
+                reference = ?, ville = ?, nb_palettes = ?, type_palettes = ?,
+                poids_total = ?, nb_colis = ?, livraison = ?, telephone = ?
+            WHERE id = ?
+        """, (
+            ligne.get('NOTRE RÉFÉRENCE') or ligne.get('reference', ''),
+            ligne.get('VILLE') or ligne.get('ville', ''),
+            ligne.get('NOMBRE DE PALETTES') or ligne.get('nb_palettes', 0),
+            ligne.get('TYPE DE PALETTES') or ligne.get('type_palettes', ''),
+            ligne.get('POIDS TOTAL (KG)') or ligne.get('poids_total', 0),
+            ligne.get('NOMBRE DE COLIS') or ligne.get('nb_colis', 0),
+            ligne.get('LIVRAISON ASSOCIÉE') or ligne.get('livraison', ''),
+            ligne.get('TÉLÉPHONE') or ligne.get('telephone', ''),
+            enlevement_id,
+        ))
+        updated += 1
+
+    conn.commit()
+    conn.close()
+    return updated
+
+
 def save_extraction(db_path, nom_fichier, date_creation, lignes_tableau, log_contenu=None):
     """
     Insère une extraction et ses enlèvements dans la DB.
@@ -278,3 +356,123 @@ def generate_excel_from_db(db_path, nom_fichier):
 
     df = df.sort_values('N° ENLÈVEMENT')
     return df
+
+
+def get_statistiques(db_path, date_debut=None, date_fin=None):
+    """
+    Agrège les statistiques depuis la DB avec filtres de date optionnels.
+    Les dates sont au format ISO 8601 (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS).
+    """
+    conn = get_db(db_path)
+
+    # Clause WHERE pour le filtre de date
+    where_clauses = []
+    params = []
+    if date_debut:
+        where_clauses.append("e.date_creation >= ?")
+        params.append(date_debut)
+    if date_fin:
+        where_clauses.append("e.date_creation <= ?")
+        params.append(date_fin + "T23:59:59" if len(date_fin) == 10 else date_fin)
+
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    # Totaux globaux
+    row = conn.execute(f"""
+        SELECT
+            COUNT(DISTINCT e.id) as nb_extractions,
+            COUNT(en.id) as nb_enlevements,
+            COALESCE(SUM(en.poids_total), 0) as poids_total,
+            COALESCE(SUM(en.nb_colis), 0) as colis_total,
+            COALESCE(SUM(en.nb_palettes), 0) as palettes_total
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql}
+    """, params).fetchone()
+
+    totaux = {
+        'nb_extractions': row['nb_extractions'],
+        'nb_enlevements': row['nb_enlevements'],
+        'poids_total': row['poids_total'],
+        'colis_total': row['colis_total'],
+        'palettes_total': row['palettes_total'],
+    }
+
+    # Par livraison (palettes)
+    rows = conn.execute(f"""
+        SELECT en.livraison, COALESCE(SUM(en.nb_palettes), 0) as total
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql} AND en.livraison IS NOT NULL AND en.livraison != ''
+        GROUP BY en.livraison ORDER BY total DESC
+    """, params).fetchall()
+    par_livraison = {r['livraison']: r['total'] for r in rows}
+
+    # Poids par livraison
+    rows = conn.execute(f"""
+        SELECT en.livraison, COALESCE(SUM(en.poids_total), 0) as total
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql} AND en.livraison IS NOT NULL AND en.livraison != ''
+        GROUP BY en.livraison ORDER BY total DESC
+    """, params).fetchall()
+    poids_par_livraison = {r['livraison']: r['total'] for r in rows}
+
+    # Colis par livraison
+    rows = conn.execute(f"""
+        SELECT en.livraison, COALESCE(SUM(en.nb_colis), 0) as total
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql} AND en.livraison IS NOT NULL AND en.livraison != ''
+        GROUP BY en.livraison ORDER BY total DESC
+    """, params).fetchall()
+    colis_par_livraison = {r['livraison']: r['total'] for r in rows}
+
+    # Par type de palette
+    rows = conn.execute(f"""
+        SELECT en.type_palettes, COUNT(*) as total
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql} AND en.type_palettes IS NOT NULL AND en.type_palettes != ''
+        GROUP BY en.type_palettes ORDER BY total DESC
+    """, params).fetchall()
+    par_type_palette = {r['type_palettes']: r['total'] for r in rows}
+
+    # Evolution quotidienne
+    rows = conn.execute(f"""
+        SELECT
+            DATE(e.date_creation) as jour,
+            COUNT(DISTINCT en.num_enlevement) as nb_enlevements,
+            COALESCE(SUM(en.nb_palettes), 0) as nb_palettes
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql}
+        GROUP BY DATE(e.date_creation)
+        ORDER BY jour
+    """, params).fetchall()
+    evolution_quotidienne = [
+        {'date': r['jour'], 'nb_enlevements': r['nb_enlevements'], 'nb_palettes': r['nb_palettes']}
+        for r in rows
+    ]
+
+    # Top sociétés
+    rows = conn.execute(f"""
+        SELECT en.societe, COUNT(DISTINCT en.num_enlevement) as nb
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {where_sql} AND en.societe IS NOT NULL AND en.societe != ''
+        GROUP BY en.societe ORDER BY nb DESC LIMIT 10
+    """, params).fetchall()
+    top_societes = [{'societe': r['societe'], 'nb': r['nb']} for r in rows]
+
+    conn.close()
+
+    return {
+        'totaux': totaux,
+        'par_livraison': par_livraison,
+        'poids_par_livraison': poids_par_livraison,
+        'colis_par_livraison': colis_par_livraison,
+        'par_type_palette': par_type_palette,
+        'evolution_quotidienne': evolution_quotidienne,
+        'top_societes': top_societes,
+    }

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Bibile - Statistiques{% endblock %}
+{% block page_title %}Statistiques{% endblock %}
+{% block page_subtitle %}Vue d'ensemble de vos enlèvements{% endblock %}
+
+{% block content %}
+    <!-- Filtres -->
+    <div class="card stats-filters">
+        <div class="filters-row">
+            <div class="filter-group">
+                <label>Période</label>
+                <select id="periodFilter">
+                    <option value="all">Toutes les données</option>
+                    <option value="today">Aujourd'hui</option>
+                    <option value="week" selected>Cette semaine</option>
+                    <option value="month">Ce mois</option>
+                    <option value="custom">Personnalisé</option>
+                </select>
+            </div>
+            <div class="filter-group filter-dates hidden" id="customDates">
+                <label>Du</label>
+                <input type="date" id="dateDebut">
+                <label>Au</label>
+                <input type="date" id="dateFin">
+            </div>
+            <button id="refreshStats" class="btn-secondary btn-sm">Actualiser</button>
+        </div>
+    </div>
+
+    <!-- Totaux -->
+    <div class="stats-totaux">
+        <div class="stat-card stat-total">
+            <div class="stat-value" id="totalExtractions">-</div>
+            <div class="stat-label">Extractions</div>
+        </div>
+        <div class="stat-card stat-total">
+            <div class="stat-value" id="totalEnlevements">-</div>
+            <div class="stat-label">Enlèvements</div>
+        </div>
+        <div class="stat-card stat-total">
+            <div class="stat-value" id="totalPalettes">-</div>
+            <div class="stat-label">Palettes</div>
+        </div>
+        <div class="stat-card stat-total">
+            <div class="stat-value" id="totalPoids">-</div>
+            <div class="stat-label">Poids total (kg)</div>
+        </div>
+        <div class="stat-card stat-total">
+            <div class="stat-value" id="totalColis">-</div>
+            <div class="stat-label">Colis</div>
+        </div>
+    </div>
+
+    <!-- Graphiques row 1 : camemberts -->
+    <div class="charts-row">
+        <div class="card chart-card">
+            <div class="card-header"><h3>Répartition par livraison</h3></div>
+            <canvas id="chartLivraison"></canvas>
+        </div>
+        <div class="card chart-card">
+            <div class="card-header"><h3>Types de palettes</h3></div>
+            <canvas id="chartPalettes"></canvas>
+        </div>
+    </div>
+
+    <!-- Graphiques row 2 : barres -->
+    <div class="charts-row">
+        <div class="card chart-card">
+            <div class="card-header"><h3>Poids par livraison (kg)</h3></div>
+            <canvas id="chartPoids"></canvas>
+        </div>
+        <div class="card chart-card">
+            <div class="card-header"><h3>Colis par livraison</h3></div>
+            <canvas id="chartColis"></canvas>
+        </div>
+    </div>
+
+    <!-- Graphique row 3 : évolution -->
+    <div class="card chart-card chart-wide">
+        <div class="card-header"><h3>Évolution quotidienne</h3></div>
+        <canvas id="chartEvolution"></canvas>
+    </div>
+
+    <!-- Top sociétés -->
+    <div class="card chart-card chart-wide">
+        <div class="card-header"><h3>Top 10 sociétés</h3></div>
+        <canvas id="chartSocietes"></canvas>
+    </div>
+
+    <!-- État vide -->
+    <div id="emptyStats" class="empty-state hidden">
+        <p>Aucune donnée pour la période sélectionnée.</p>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/chart.min.js"></script>
+<script src="/static/js/statistiques.js"></script>
+{% endblock %}

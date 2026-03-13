@@ -21,6 +21,8 @@ a = Analysis(
         'flask',
         'jinja2',
         'jinja2.ext',
+        'fitz',
+        'pymupdf',
     ],
     hookspath=[],
     hooksconfig={},
