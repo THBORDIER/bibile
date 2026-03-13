@@ -175,6 +175,43 @@ a:hover {
     color: var(--text-muted);
 }
 
+/* ===== Update Banner ===== */
+.update-banner {
+    background: #1a3a5c;
+    border-bottom: 1px solid var(--accent-blue);
+    padding: 10px 20px;
+}
+
+.update-banner.hidden {
+    display: none;
+}
+
+.update-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.update-icon {
+    font-size: 18px;
+}
+
+.update-text {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.update-progress {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 6px;
+}
+
+.update-progress.hidden {
+    display: none;
+}
+
 /* ===== Main Area ===== */
 .main-area {
     margin-left: var(--sidebar-width);

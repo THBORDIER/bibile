@@ -142,12 +142,27 @@ def main():
 
     # 5. Importer Flask (apres avoir set les env vars)
     from bibile.server import app, init_sync_manager
+    import bibile.server as server_module
 
     # 5b. Demarrer le SyncManager (synchro BDD externe)
     try:
         init_sync_manager()
     except Exception as e:
         print(f"Note: SyncManager non demarre ({e})")
+
+    # 5c. Verifier les mises a jour en arriere-plan
+    def background_update_check():
+        try:
+            from bibile.updater import check_for_update
+            from bibile.version import __version__
+            result = check_for_update(__version__)
+            if result:
+                server_module.update_available = result
+                print(f"Mise a jour disponible: v{result['version']}")
+        except Exception as e:
+            print(f"Note: check update echoue ({e})")
+
+    threading.Thread(target=background_update_check, daemon=True).start()
 
     # 6. Demarrer Flask dans un thread daemon
     def start_flask():
@@ -161,7 +176,7 @@ def main():
         print(f"Erreur: le serveur Flask n'a pas demarre sur le port {port}")
         sys.exit(1)
 
-    # 8. Ouvrir la fenetre pywebview
+    # 8. Ouvrir la fenetre pywebview (Edge Chromium requis pour le CSS moderne)
     import webview
     window = webview.create_window(
         'Bibile',
@@ -170,7 +185,13 @@ def main():
         height=900,
         min_size=(1000, 700),
     )
-    webview.start()
+    try:
+        webview.start(gui='edgechromium')
+    except Exception:
+        # Fallback si edgechromium non disponible
+        print("WebView2 (Edge Chromium) non disponible, fallback par defaut.")
+        print("Pour un rendu optimal, installez WebView2: https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
+        webview.start()
 
 
 if __name__ == '__main__':

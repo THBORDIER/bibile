@@ -11,14 +11,18 @@ echo [2/3] Nettoyage des anciens builds...
 if exist "dist" rmdir /s /q dist
 if exist "build" rmdir /s /q build
 
-echo [3/3] Build de l'executable...
+echo [3/4] Build de l'executable...
 python -m PyInstaller bibile.spec --clean --noconfirm
 
 echo.
 if exist "dist\Bibile\Bibile.exe" (
+    echo [4/4] Creation du ZIP pour release GitHub...
+    powershell -Command "Compress-Archive -Path 'dist\Bibile' -DestinationPath 'dist\Bibile.zip' -Force"
+    echo.
     echo ============================================
     echo   Build termine avec succes !
     echo   Executable: dist\Bibile\Bibile.exe
+    echo   ZIP release: dist\Bibile.zip
     echo ============================================
 ) else (
     echo ============================================

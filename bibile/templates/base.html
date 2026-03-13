@@ -72,13 +72,28 @@
             </nav>
 
             <div class="sidebar-footer">
-                <div class="version-badge">v3.0</div>
+                <div class="version-badge">v{{ version }}</div>
                 <span class="version-text">Bibile Desktop</span>
             </div>
         </aside>
 
         <!-- MAIN AREA -->
         <div class="main-area">
+            <!-- Banniere de mise a jour -->
+            <div id="updateBanner" class="update-banner hidden">
+                <div class="update-banner-content">
+                    <span class="update-icon">&#x2B06;</span>
+                    <span class="update-text">
+                        Nouvelle version <strong id="updateVersion"></strong> disponible !
+                    </span>
+                    <button id="btnUpdateInstall" class="btn btn-primary btn-sm">Installer</button>
+                    <button id="btnUpdateDismiss" class="btn btn-secondary btn-sm">Plus tard</button>
+                </div>
+                <div id="updateProgress" class="update-progress hidden">
+                    <span>Telechargement et installation en cours...</span>
+                </div>
+            </div>
+
             <header class="top-bar">
                 <div class="top-bar-left">
                     <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
@@ -93,5 +108,42 @@
     </div>
 
     {% block scripts %}{% endblock %}
+
+    <script>
+    // Verification de mise a jour (3s apres chargement)
+    setTimeout(async () => {
+        try {
+            const resp = await fetch('/api/update/check');
+            const data = await resp.json();
+            if (data.available) {
+                document.getElementById('updateVersion').textContent = 'v' + data.version;
+                document.getElementById('updateBanner').classList.remove('hidden');
+            }
+        } catch (e) { /* silencieux */ }
+    }, 3000);
+
+    document.getElementById('btnUpdateDismiss').addEventListener('click', () => {
+        document.getElementById('updateBanner').classList.add('hidden');
+    });
+
+    document.getElementById('btnUpdateInstall').addEventListener('click', async () => {
+        const btn = document.getElementById('btnUpdateInstall');
+        btn.disabled = true;
+        btn.textContent = 'Installation...';
+        document.getElementById('updateProgress').classList.remove('hidden');
+        document.getElementById('btnUpdateDismiss').classList.add('hidden');
+        try {
+            const resp = await fetch('/api/update/apply', { method: 'POST' });
+            const data = await resp.json();
+            if (data.erreur) {
+                btn.textContent = data.erreur;
+                btn.disabled = false;
+                document.getElementById('updateProgress').classList.add('hidden');
+            }
+        } catch (e) {
+            // L'app se ferme, la connexion est coupee — c'est normal
+        }
+    });
+    </script>
 </body>
 </html>

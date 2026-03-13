@@ -94,8 +94,22 @@ except ImportError:
     from external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
 init_db(DB_PATH)
 
+# Version
+try:
+    from bibile.version import __version__
+except ImportError:
+    from version import __version__
+
+# Injecter la version dans tous les templates
+@app.context_processor
+def inject_version():
+    return {'version': __version__}
+
 # Gestionnaire de synchro (initialisé au démarrage)
 sync_manager = None
+
+# Résultat du check de mise à jour (rempli par le thread background dans main.py)
+update_available = None
 
 
 
@@ -1374,6 +1388,53 @@ def init_sync_manager():
     global sync_manager
     sync_manager = SyncManager(DB_PATH)
     sync_manager.start()
+
+
+# ===== MISE A JOUR =====
+
+@app.route('/api/update/check')
+def api_update_check():
+    """Retourne les infos de mise a jour si disponible."""
+    global update_available
+    if update_available:
+        return jsonify({
+            'available': True,
+            'version': update_available['version'],
+            'changelog': update_available.get('changelog', ''),
+        })
+    return jsonify({'available': False})
+
+
+@app.route('/api/update/apply', methods=['POST'])
+def api_update_apply():
+    """Telecharge et applique la mise a jour."""
+    global update_available
+    if not update_available:
+        return jsonify({'erreur': 'Aucune mise a jour disponible'}), 400
+
+    # Refuser en mode dev
+    if not getattr(sys, '_MEIPASS', None):
+        return jsonify({'erreur': 'Mise a jour disponible uniquement en mode bundle'}), 400
+
+    try:
+        from bibile.updater import download_update, apply_update
+    except ImportError:
+        from updater import download_update, apply_update
+
+    # Telecharger le ZIP
+    updates_dir = Path(os.environ.get('BIBILE_DATA_DIR', '.')) / 'updates'
+    updates_dir.mkdir(exist_ok=True)
+    zip_path = updates_dir / f"bibile-{update_available['version']}.zip"
+
+    success = download_update(update_available['download_url'], zip_path)
+    if not success:
+        return jsonify({'erreur': 'Echec du telechargement'}), 500
+
+    # Appliquer (ferme l'app)
+    app_dir = Path(sys.executable).parent
+    apply_update(zip_path, app_dir)
+
+    return jsonify({'ok': True})
 
 
 if __name__ == '__main__':

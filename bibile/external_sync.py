@@ -34,15 +34,29 @@ logger = logging.getLogger('bibile.sync')
 def _get_connection(config):
     """Crée une connexion à la BDD DBI (SQL Server Azure)."""
     import pymssql
+
+    host = config['host']
+    user = config['username']
+
+    # Azure SQL exige le format user@servername pour l'authentification
+    if '.database.windows.net' in host and '@' not in user:
+        server_short = host.split('.')[0]  # ex: dbi-production-sql-server
+        user = f"{user}@{server_short}"
+
+    # Forcer les variables FreeTDS pour Azure (TLS obligatoire)
+    import os
+    os.environ.setdefault('TDSVER', '7.3')
+
     return pymssql.connect(
-        server=config['host'],
+        server=host,
         port=int(config.get('port', 1433)),
-        user=config['username'],
+        user=user,
         password=config.get('password_encrypted', ''),
         database=config['database_name'],
         login_timeout=15,
         timeout=30,
         as_dict=True,
+        tds_version='7.3',
     )
 
 
