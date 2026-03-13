@@ -42,9 +42,10 @@ COLONNES_DB = [
 
 
 def get_db(db_path):
-    """Retourne une connexion SQLite avec foreign keys activées."""
+    """Retourne une connexion SQLite avec foreign keys activées et WAL mode."""
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -78,6 +79,112 @@ def init_db(db_path):
         );
 
         CREATE INDEX IF NOT EXISTS idx_enlevements_extraction ON enlevements(extraction_id);
+        CREATE INDEX IF NOT EXISTS idx_enlevements_ville ON enlevements(ville);
+
+        -- Chauffeurs (locaux + synchro externe)
+        CREATE TABLE IF NOT EXISTS chauffeurs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            prenom TEXT,
+            telephone TEXT,
+            externe_id TEXT UNIQUE,
+            actif INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Vehicules
+        CREATE TABLE IF NOT EXISTS vehicules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            immatriculation TEXT NOT NULL UNIQUE,
+            type_vehicule TEXT,
+            capacite_palettes INTEGER DEFAULT 0,
+            externe_id TEXT UNIQUE,
+            actif INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Tournees
+        CREATE TABLE IF NOT EXISTS tournees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            date_tournee TEXT NOT NULL,
+            chauffeur_id INTEGER REFERENCES chauffeurs(id),
+            vehicule_id INTEGER REFERENCES vehicules(id),
+            statut TEXT DEFAULT 'brouillon',
+            ordre_tri INTEGER DEFAULT 0,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tournees_date ON tournees(date_tournee);
+
+        -- Liaison tournee <-> enlevements
+        CREATE TABLE IF NOT EXISTS tournee_enlevements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournee_id INTEGER NOT NULL REFERENCES tournees(id) ON DELETE CASCADE,
+            enlevement_id INTEGER NOT NULL REFERENCES enlevements(id) ON DELETE CASCADE,
+            ordre INTEGER DEFAULT 0,
+            UNIQUE(tournee_id, enlevement_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_te_tournee ON tournee_enlevements(tournee_id);
+        CREATE INDEX IF NOT EXISTS idx_te_enlevement ON tournee_enlevements(enlevement_id);
+
+        -- Zones geographiques
+        CREATE TABLE IF NOT EXISTS zones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL UNIQUE,
+            tournee_defaut TEXT,
+            couleur TEXT DEFAULT '#4493f8',
+            priorite INTEGER DEFAULT 0
+        );
+
+        -- Mapping ville -> zone
+        CREATE TABLE IF NOT EXISTS ville_zone_mapping (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ville TEXT NOT NULL UNIQUE,
+            zone_id INTEGER REFERENCES zones(id),
+            tournee_defaut TEXT,
+            lat REAL,
+            lon REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_vzm_ville ON ville_zone_mapping(ville);
+
+        -- Config connexion BDD externe
+        CREATE TABLE IF NOT EXISTS external_db_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT DEFAULT 'default',
+            db_type TEXT NOT NULL DEFAULT 'mysql',
+            host TEXT NOT NULL,
+            port INTEGER DEFAULT 3306,
+            database_name TEXT NOT NULL,
+            username TEXT NOT NULL,
+            password_encrypted TEXT,
+            derniere_sync TEXT,
+            sync_interval_minutes INTEGER DEFAULT 60,
+            actif INTEGER DEFAULT 1
+        );
+
+        -- Selection des chauffeurs a synchroniser
+        CREATE TABLE IF NOT EXISTS chauffeurs_sync (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            externe_id TEXT NOT NULL UNIQUE,
+            nom TEXT NOT NULL,
+            selectionne INTEGER DEFAULT 0
+        );
+
+        -- Donnees transport synchronisees
+        CREATE TABLE IF NOT EXISTS donnees_transport (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chauffeur_id INTEGER REFERENCES chauffeurs(id),
+            date_donnee TEXT NOT NULL,
+            kilometres REAL DEFAULT 0,
+            consommation_carburant REAL DEFAULT 0,
+            duree_travail_minutes INTEGER DEFAULT 0,
+            source_externe_id TEXT,
+            synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(chauffeur_id, date_donnee)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dt_chauffeur ON donnees_transport(chauffeur_id);
+        CREATE INDEX IF NOT EXISTS idx_dt_date ON donnees_transport(date_donnee);
     """)
     conn.commit()
     conn.close()

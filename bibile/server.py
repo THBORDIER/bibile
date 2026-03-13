@@ -64,9 +64,36 @@ HISTORIQUE_DIR.mkdir(exist_ok=True)
 # Initialiser la DB
 try:
     from bibile.database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db, get_statistiques, find_duplicates, update_enlevements
+    from bibile.database_tournees import (
+        list_chauffeurs, save_chauffeur, delete_chauffeur,
+        list_vehicules, save_vehicule, delete_vehicule,
+        list_tournees, create_tournee, update_tournee, delete_tournee,
+        assign_enlevements, remove_enlevement, reorder_enlevements,
+        get_unassigned_enlevements, list_zones, save_zone, delete_zone,
+        list_ville_zone_mapping, save_ville_zone, get_villes_inconnues,
+        auto_distribuer, get_external_config, save_external_config,
+        list_chauffeurs_sync, save_chauffeurs_sync_selection,
+        get_donnees_transport, get_extractions_for_date,
+    )
+    from bibile.external_sync import SyncManager, test_connection, fetch_external_drivers
 except ImportError:
     from database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db, get_statistiques, find_duplicates, update_enlevements
+    from database_tournees import (
+        list_chauffeurs, save_chauffeur, delete_chauffeur,
+        list_vehicules, save_vehicule, delete_vehicule,
+        list_tournees, create_tournee, update_tournee, delete_tournee,
+        assign_enlevements, remove_enlevement, reorder_enlevements,
+        get_unassigned_enlevements, list_zones, save_zone, delete_zone,
+        list_ville_zone_mapping, save_ville_zone, get_villes_inconnues,
+        auto_distribuer, get_external_config, save_external_config,
+        list_chauffeurs_sync, save_chauffeurs_sync_selection,
+        get_donnees_transport, get_extractions_for_date,
+    )
+    from external_sync import SyncManager, test_connection, fetch_external_drivers
 init_db(DB_PATH)
+
+# Gestionnaire de synchro (initialisé au démarrage)
+sync_manager = None
 
 
 
@@ -914,6 +941,329 @@ def voir_log(filename):
 
     except Exception as e:
         return str(e), 500
+
+
+# ===== TOURNEES =====
+
+@app.route('/tournees')
+def page_tournees():
+    return render_template('tournees.html', active_page='tournees')
+
+
+@app.route('/parametres')
+def page_parametres():
+    return render_template('parametres.html', active_page='parametres')
+
+
+@app.route('/api/tournees')
+def api_list_tournees():
+    try:
+        date = request.args.get('date')
+        if not date:
+            return jsonify({'erreur': 'Parametre date requis'}), 400
+        return jsonify({'tournees': list_tournees(DB_PATH, date)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees', methods=['POST'])
+def api_create_tournee():
+    try:
+        data = request.get_json()
+        tournee_id = create_tournee(DB_PATH, data)
+        return jsonify({'id': tournee_id})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/<int:tid>', methods=['PUT'])
+def api_update_tournee(tid):
+    try:
+        data = request.get_json()
+        update_tournee(DB_PATH, tid, data)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/<int:tid>', methods=['DELETE'])
+def api_delete_tournee(tid):
+    try:
+        delete_tournee(DB_PATH, tid)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/<int:tid>/enlevements', methods=['POST'])
+def api_assign_enlevements(tid):
+    try:
+        data = request.get_json()
+        enlevement_ids = data.get('enlevement_ids', [])
+        assign_enlevements(DB_PATH, tid, enlevement_ids)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/<int:tid>/enlevements/<int:eid>', methods=['DELETE'])
+def api_remove_enlevement(tid, eid):
+    try:
+        remove_enlevement(DB_PATH, tid, eid)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/<int:tid>/reorder', methods=['PUT'])
+def api_reorder_enlevements(tid):
+    try:
+        data = request.get_json()
+        ordered_ids = data.get('enlevement_ids', [])
+        reorder_enlevements(DB_PATH, tid, ordered_ids)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/enlevements-non-assignes')
+def api_unassigned():
+    try:
+        extraction_id = request.args.get('extraction_id', type=int)
+        date = request.args.get('date')
+        enlevements = get_unassigned_enlevements(DB_PATH, extraction_id=extraction_id, date=date)
+        return jsonify({'enlevements': enlevements})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/auto-distribuer', methods=['POST'])
+def api_auto_distribuer():
+    try:
+        data = request.get_json()
+        result = auto_distribuer(DB_PATH, data['date_tournee'], data.get('extraction_id'))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/extractions-par-date')
+def api_extractions_par_date():
+    try:
+        date = request.args.get('date')
+        if not date:
+            return jsonify({'erreur': 'Parametre date requis'}), 400
+        return jsonify({'extractions': get_extractions_for_date(DB_PATH, date)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+# ===== CHAUFFEURS & VEHICULES =====
+
+@app.route('/api/chauffeurs')
+def api_list_chauffeurs():
+    try:
+        return jsonify({'chauffeurs': list_chauffeurs(DB_PATH)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/chauffeurs', methods=['POST'])
+def api_save_chauffeur():
+    try:
+        data = request.get_json()
+        cid = save_chauffeur(DB_PATH, data)
+        return jsonify({'id': cid})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/chauffeurs/<int:cid>', methods=['DELETE'])
+def api_delete_chauffeur(cid):
+    try:
+        delete_chauffeur(DB_PATH, cid)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/vehicules')
+def api_list_vehicules():
+    try:
+        return jsonify({'vehicules': list_vehicules(DB_PATH)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/vehicules', methods=['POST'])
+def api_save_vehicule():
+    try:
+        data = request.get_json()
+        vid = save_vehicule(DB_PATH, data)
+        return jsonify({'id': vid})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/vehicules/<int:vid>', methods=['DELETE'])
+def api_delete_vehicule(vid):
+    try:
+        delete_vehicule(DB_PATH, vid)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+# ===== ZONES & VILLE-ZONE MAPPING =====
+
+@app.route('/api/zones')
+def api_list_zones():
+    try:
+        return jsonify({'zones': list_zones(DB_PATH)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/zones', methods=['POST'])
+def api_save_zone():
+    try:
+        data = request.get_json()
+        zid = save_zone(DB_PATH, data)
+        return jsonify({'id': zid})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/zones/<int:zid>', methods=['DELETE'])
+def api_delete_zone(zid):
+    try:
+        delete_zone(DB_PATH, zid)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/ville-zone-mapping')
+def api_ville_zone():
+    try:
+        return jsonify({'mapping': list_ville_zone_mapping(DB_PATH)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/ville-zone-mapping', methods=['POST'])
+def api_save_ville_zone():
+    try:
+        data = request.get_json()
+        save_ville_zone(DB_PATH, data)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/villes-inconnues')
+def api_villes_inconnues():
+    try:
+        return jsonify({'villes': get_villes_inconnues(DB_PATH)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+# ===== SYNCHRO EXTERNE =====
+
+@app.route('/api/external-db/config')
+def api_get_ext_config():
+    try:
+        config = get_external_config(DB_PATH)
+        if config:
+            config.pop('password_encrypted', None)
+        return jsonify({'config': config})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/external-db/config', methods=['POST'])
+def api_save_ext_config():
+    try:
+        data = request.get_json()
+        save_external_config(DB_PATH, data)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/external-db/test', methods=['POST'])
+def api_test_ext_connection():
+    try:
+        data = request.get_json()
+        success, message = test_connection(data)
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/external-db/sync', methods=['POST'])
+def api_sync_now():
+    try:
+        global sync_manager
+        if sync_manager:
+            sync_manager.trigger_sync()
+            return jsonify({'ok': True, 'message': 'Synchronisation declenchee'})
+        return jsonify({'erreur': 'SyncManager non initialise'}), 500
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/external-db/status')
+def api_sync_status():
+    try:
+        global sync_manager
+        if sync_manager:
+            return jsonify(sync_manager.get_status())
+        return jsonify({'configured': False, 'actif': False})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/external-db/chauffeurs')
+def api_ext_chauffeurs():
+    try:
+        config = get_external_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion externe non configuree'}), 400
+        drivers = fetch_external_drivers(config)
+        return jsonify({'chauffeurs': drivers})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/external-db/chauffeurs/selection', methods=['POST'])
+def api_save_ext_chauffeurs_selection():
+    try:
+        data = request.get_json()
+        save_chauffeurs_sync_selection(DB_PATH, data.get('selections', []))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/donnees-transport')
+def api_donnees_transport():
+    try:
+        chauffeur_id = request.args.get('chauffeur_id', type=int)
+        date_debut = request.args.get('date_debut')
+        date_fin = request.args.get('date_fin')
+        data = get_donnees_transport(DB_PATH, chauffeur_id, date_debut, date_fin)
+        return jsonify({'donnees': data})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+def init_sync_manager():
+    """Initialise le SyncManager. Appelé depuis main.py."""
+    global sync_manager
+    sync_manager = SyncManager(DB_PATH)
+    sync_manager.start()
 
 
 if __name__ == '__main__':

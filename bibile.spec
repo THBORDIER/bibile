@@ -23,6 +23,8 @@ a = Analysis(
         'jinja2.ext',
         'fitz',
         'pymupdf',
+        'mysql.connector',
+        'psycopg2',
     ],
     hookspath=[],
     hooksconfig={},

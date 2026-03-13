@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Tournees - Bibile{% endblock %}
+{% block page_title %}Tournees{% endblock %}
+{% block page_subtitle %}Planification et suivi des tournees{% endblock %}
+
+{% block content %}
+<!-- Toolbar -->
+<div class="card kanban-toolbar">
+    <div class="toolbar-row">
+        <div class="toolbar-group">
+            <label>Date</label>
+            <div class="date-nav">
+                <button id="btnPrevDay" class="btn-nav" title="Jour precedent">&lt;</button>
+                <input type="date" id="datePicker" class="form-input">
+                <button id="btnNextDay" class="btn-nav" title="Jour suivant">&gt;</button>
+                <button id="btnToday" class="btn-nav btn-today" title="Aujourd'hui">Auj.</button>
+            </div>
+        </div>
+        <div class="toolbar-group">
+            <label for="extractionSelect">Extraction</label>
+            <select id="extractionSelect" class="form-select">
+                <option value="">-- Choisir --</option>
+            </select>
+        </div>
+        <div class="toolbar-actions">
+            <button id="btnNewTournee" class="btn btn-primary">+ Nouvelle tournee</button>
+            <button id="btnAutoDistrib" class="btn btn-secondary">Auto-distribuer</button>
+        </div>
+        <div class="toolbar-views">
+            <button id="btnViewKanban" class="btn btn-view active" data-view="kanban">Kanban</button>
+            <button id="btnViewMap" class="btn btn-view" data-view="map">Carte</button>
+        </div>
+    </div>
+</div>
+
+<!-- Vue Kanban -->
+<div id="kanbanView" class="kanban-container">
+    <!-- Colonne "Non assigne" -->
+    <div class="kanban-column" id="colUnassigned">
+        <div class="kanban-column-header">
+            <h3>Non assigne</h3>
+            <span class="kanban-count" id="countUnassigned">0</span>
+        </div>
+        <div class="kanban-column-body" id="listUnassigned" data-tournee-id="0">
+        </div>
+    </div>
+    <!-- Colonnes dynamiques pour les tournees -->
+</div>
+
+<!-- Vue Carte -->
+<div id="mapView" class="map-view hidden">
+    <div id="mapContainer" class="map-container"></div>
+    <div class="map-legend" id="mapLegend"></div>
+</div>
+
+<!-- Modal nouvelle tournee -->
+<div id="modalNewTournee" class="modal hidden">
+    <div class="modal-content">
+        <h3>Nouvelle tournee</h3>
+        <div class="form-group">
+            <label>Nom</label>
+            <input type="text" id="inputTourneeName" class="form-input" placeholder="Ex: Tournee Dijon">
+        </div>
+        <div class="form-group">
+            <label>Chauffeur</label>
+            <select id="selectChauffeur" class="form-select">
+                <option value="">-- Aucun --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Vehicule</label>
+            <select id="selectVehicule" class="form-select">
+                <option value="">-- Aucun --</option>
+            </select>
+        </div>
+        <div class="modal-actions">
+            <button id="btnCreateTournee" class="btn btn-primary">Creer</button>
+            <button id="btnCancelTournee" class="btn btn-secondary">Annuler</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal villes inconnues -->
+<div id="modalUnknownCities" class="modal hidden">
+    <div class="modal-content">
+        <h3>Villes non configurees</h3>
+        <p>Les villes suivantes n'ont pas de tournee par defaut :</p>
+        <div id="unknownCitiesList" class="unknown-cities-list"></div>
+        <div class="modal-actions">
+            <button id="btnCloseUnknown" class="btn btn-secondary">Fermer</button>
+            <a href="/parametres" class="btn btn-primary">Configurer les zones</a>
+        </div>
+    </div>
+</div>
+
+<!-- Modal editer tournee -->
+<div id="modalEditTournee" class="modal hidden">
+    <div class="modal-content">
+        <h3>Modifier la tournee</h3>
+        <input type="hidden" id="editTourneeId">
+        <div class="form-group">
+            <label>Nom</label>
+            <input type="text" id="editTourneeName" class="form-input">
+        </div>
+        <div class="form-group">
+            <label>Chauffeur</label>
+            <select id="editChauffeur" class="form-select">
+                <option value="">-- Aucun --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Vehicule</label>
+            <select id="editVehicule" class="form-select">
+                <option value="">-- Aucun --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Statut</label>
+            <select id="editStatut" class="form-select">
+                <option value="brouillon">Brouillon</option>
+                <option value="planifie">Planifie</option>
+                <option value="en_cours">En cours</option>
+                <option value="termine">Termine</option>
+            </select>
+        </div>
+        <div class="modal-actions">
+            <button id="btnSaveEditTournee" class="btn btn-primary">Enregistrer</button>
+            <button id="btnDeleteTournee" class="btn btn-danger">Supprimer</button>
+            <button id="btnCancelEditTournee" class="btn btn-secondary">Annuler</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="/static/css/leaflet.css">
+<script src="/static/js/sortable.min.js"></script>
+<script src="/static/js/leaflet.min.js"></script>
+<script src="/static/js/tournees.js"></script>
+<script src="/static/js/carte.js"></script>
+{% endblock %}

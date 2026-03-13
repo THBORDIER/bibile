@@ -141,7 +141,13 @@ def main():
     os.environ['BIBILE_PORT'] = str(port)
 
     # 5. Importer Flask (apres avoir set les env vars)
-    from bibile.server import app
+    from bibile.server import app, init_sync_manager
+
+    # 5b. Demarrer le SyncManager (synchro BDD externe)
+    try:
+        init_sync_manager()
+    except Exception as e:
+        print(f"Note: SyncManager non demarre ({e})")
 
     # 6. Demarrer Flask dans un thread daemon
     def start_flask():
