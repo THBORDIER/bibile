@@ -69,7 +69,7 @@ async function doCompare() {
                 <td>${esc(m.num_enlevement)}</td>
                 <td>${esc(m.societe)}</td>
                 <td>${m.pdf.nb_palettes}</td>
-                <td>${m.edi.total_positions}</td>
+                <td>${m.edi.total_palettes}</td>
                 <td>${m.pdf.poids_total}</td>
                 <td>${m.edi.total_poids}</td>
                 <td>${m.pdf.nb_colis}</td>
@@ -96,14 +96,14 @@ async function doCompare() {
         data.edi_only.forEach(e => {
             tbody.innerHTML += `<tr class="edi-edi-only">
                 <td><span class="edi-badge edi-edi-only">EDI seul</span></td>
-                <td>${esc(e.ref_message)}</td>
-                <td>-</td>
-                <td>-</td>
-                <td>${e.total_positions}</td>
+                <td>${esc(e.shipment_id || e.transaction_ref)}</td>
+                <td>${esc(e.sold_by)}</td>
+                <td>${e.total_palettes}</td>
                 <td>-</td>
                 <td>${e.total_poids}</td>
                 <td>-</td>
                 <td>${e.total_colis}</td>
+                <td>-</td>
             </tr>`;
         });
 

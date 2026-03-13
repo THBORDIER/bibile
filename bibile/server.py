@@ -1629,9 +1629,28 @@ def api_drakkar_compare():
         config = get_drakkar_config(DB_PATH)
         if not config:
             return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
-        edi_messages = fetch_edi_messages(config, date_from=date, date_to=date)
+        # Chercher les EDI sur une plage large (J-2 a J+1) pour couvrir
+        # les decalages entre Date_Trans (reception) et pickup_date (enlevement)
+        from datetime import timedelta
+        dt = datetime.strptime(date, '%Y-%m-%d')
+        date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+        date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
+        all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+
+        # Filtrer les shipments dont pickup_date correspond a la date selectionnee
+        edi_shipments = []
+        for s in all_shipments:
+            pd = s.get('pickup_date', '')
+            # pickup_date format: "2026-02-11" ou "11/02/2026" etc.
+            if pd:
+                # Normaliser en YYYY-MM-DD
+                pd_norm = pd[:10] if len(pd) >= 10 else pd
+                if pd_norm == date:
+                    edi_shipments.append(s)
 
         # Recuperer les enlevements PDF depuis SQLite
+        # Le document PDF est emis J-1 ou J-2 par rapport a la date d'enlevement
+        # On prend une plage large pour couvrir les decalages
         try:
             from bibile.database import get_db as _get_db
         except ImportError:
@@ -1640,14 +1659,14 @@ def api_drakkar_compare():
         rows = conn.execute("""
             SELECT e.* FROM enlevements e
             JOIN extractions ex ON e.extraction_id = ex.id
-            WHERE DATE(ex.date_creation) = ?
+            WHERE DATE(ex.date_creation) BETWEEN ? AND ?
             ORDER BY e.num_enlevement
-        """, (date,)).fetchall()
+        """, (date_from, date)).fetchall()
         conn.close()
         pdf_enlevements = [dict(r) for r in rows]
 
         # Comparer
-        result = compare_edi_pdf(edi_messages, pdf_enlevements)
+        result = compare_edi_pdf(edi_shipments, pdf_enlevements)
         return jsonify(result)
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
