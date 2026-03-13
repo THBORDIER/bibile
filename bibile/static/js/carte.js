@@ -6,7 +6,10 @@
 let map = null;
 let markersLayer = null;
 let routesLayer = null;
+let vehiclesLayer = null;
 let mapInitialized = false;
+let vehiclesVisible = false;
+let vehicleRefreshInterval = null;
 
 // Couleurs pour les tournées (cycle)
 const TOUR_COLORS = [
@@ -30,10 +33,84 @@ function initMap() {
 
     markersLayer = L.layerGroup().addTo(map);
     routesLayer = L.layerGroup().addTo(map);
+    vehiclesLayer = L.layerGroup().addTo(map);
     mapInitialized = true;
 
     // Fix rendering si le conteneur était hidden
     setTimeout(() => map.invalidateSize(), 100);
+}
+
+
+// ===== VEHICULES LIVE =====
+
+const TRUCK_SVG_GREEN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28"><rect x="1" y="6" width="15" height="10" rx="2" fill="#3fb950" stroke="#fff" stroke-width="1"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#2ea043" stroke="#fff" stroke-width="1"/><circle cx="6" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/><circle cx="19" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/></svg>`;
+const TRUCK_SVG_GREY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28"><rect x="1" y="6" width="15" height="10" rx="2" fill="#6e7681" stroke="#fff" stroke-width="1"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#545d68" stroke="#fff" stroke-width="1"/><circle cx="6" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/><circle cx="19" cy="18" r="2" fill="#333" stroke="#fff" stroke-width="1"/></svg>`;
+
+function toggleVehicles() {
+    vehiclesVisible = !vehiclesVisible;
+    const btn = document.getElementById('btnToggleVehicles');
+    if (btn) btn.classList.toggle('active', vehiclesVisible);
+
+    if (vehiclesVisible) {
+        fetchVehiclePositions();
+        vehicleRefreshInterval = setInterval(fetchVehiclePositions, 30000);
+    } else {
+        if (vehicleRefreshInterval) clearInterval(vehicleRefreshInterval);
+        vehicleRefreshInterval = null;
+        if (vehiclesLayer) vehiclesLayer.clearLayers();
+    }
+}
+
+async function fetchVehiclePositions() {
+    if (!map || !vehiclesLayer) return;
+    try {
+        const resp = await fetch('/api/vehicles/positions');
+        const data = await resp.json();
+        if (data.erreur) {
+            console.warn('Positions vehicules:', data.erreur);
+            return;
+        }
+        const positions = data.positions || [];
+        vehiclesLayer.clearLayers();
+
+        positions.forEach(p => {
+            if (!p.latitude || !p.longitude) return;
+
+            const svg = p.isFresh ? TRUCK_SVG_GREEN : TRUCK_SVG_GREY;
+            const icon = L.divIcon({
+                className: 'truck-marker',
+                html: svg,
+                iconSize: [28, 28],
+                iconAnchor: [14, 14],
+            });
+
+            const marker = L.marker([p.latitude, p.longitude], { icon });
+
+            const speed = p.speed != null ? `${p.speed} km/h` : 'N/A';
+            const driver = (p.firstName || p.lastName)
+                ? `${p.firstName || ''} ${p.lastName || ''}`.trim()
+                : 'Inconnu';
+            const ts = p.gpsTimestampEpochMs
+                ? new Date(p.gpsTimestampEpochMs).toLocaleString('fr-FR')
+                : 'N/A';
+            const freshLabel = p.isFresh
+                ? '<span style="color:#3fb950">En ligne</span>'
+                : '<span style="color:#6e7681">Hors ligne</span>';
+
+            marker.bindPopup(`
+                <div class="map-popup">
+                    <strong>${escapeHtmlCarte(p.licensePlateNumber)}</strong> ${freshLabel}
+                    <br>Chauffeur: ${escapeHtmlCarte(driver)}
+                    <br>Vitesse: ${speed}
+                    <br>MAJ: ${ts}
+                </div>
+            `);
+
+            vehiclesLayer.addLayer(marker);
+        });
+    } catch (e) {
+        console.error('Erreur positions vehicules:', e);
+    }
 }
 
 

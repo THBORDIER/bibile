@@ -148,13 +148,13 @@ def init_db(db_path):
         );
         CREATE INDEX IF NOT EXISTS idx_vzm_ville ON ville_zone_mapping(ville);
 
-        -- Config connexion BDD externe
+        -- Config connexion BDD externe (DBI SQL Server Azure)
         CREATE TABLE IF NOT EXISTS external_db_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nom TEXT DEFAULT 'default',
-            db_type TEXT NOT NULL DEFAULT 'mysql',
+            db_type TEXT NOT NULL DEFAULT 'sqlserver',
             host TEXT NOT NULL,
-            port INTEGER DEFAULT 3306,
+            port INTEGER DEFAULT 1433,
             database_name TEXT NOT NULL,
             username TEXT NOT NULL,
             password_encrypted TEXT,
@@ -163,7 +163,7 @@ def init_db(db_path):
             actif INTEGER DEFAULT 1
         );
 
-        -- Selection des chauffeurs a synchroniser
+        -- Selection des chauffeurs a synchroniser (legacy)
         CREATE TABLE IF NOT EXISTS chauffeurs_sync (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             externe_id TEXT NOT NULL UNIQUE,
@@ -171,21 +171,61 @@ def init_db(db_path):
             selectionne INTEGER DEFAULT 0
         );
 
-        -- Donnees transport synchronisees
+        -- Selection des vehicules a synchroniser (DBI)
+        CREATE TABLE IF NOT EXISTS vehicules_sync (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            externe_id TEXT NOT NULL UNIQUE,
+            immatriculation TEXT NOT NULL,
+            selectionne INTEGER DEFAULT 0
+        );
+
+        -- Donnees transport synchronisees (DBI)
         CREATE TABLE IF NOT EXISTS donnees_transport (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             chauffeur_id INTEGER REFERENCES chauffeurs(id),
+            vehicule_id INTEGER REFERENCES vehicules(id),
             date_donnee TEXT NOT NULL,
             kilometres REAL DEFAULT 0,
             consommation_carburant REAL DEFAULT 0,
+            consommation_litres REAL DEFAULT 0,
             duree_travail_minutes INTEGER DEFAULT 0,
+            duree_conduite_minutes INTEGER DEFAULT 0,
             source_externe_id TEXT,
             synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(chauffeur_id, date_donnee)
+            UNIQUE(vehicule_id, date_donnee)
         );
         CREATE INDEX IF NOT EXISTS idx_dt_chauffeur ON donnees_transport(chauffeur_id);
         CREATE INDEX IF NOT EXISTS idx_dt_date ON donnees_transport(date_donnee);
     """)
+    conn.commit()
+
+    # Migration: ajouter les colonnes manquantes sur tables existantes
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT vehicule_id FROM donnees_transport LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE donnees_transport ADD COLUMN vehicule_id INTEGER REFERENCES vehicules(id)")
+        except Exception:
+            pass
+    try:
+        cursor.execute("SELECT consommation_litres FROM donnees_transport LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE donnees_transport ADD COLUMN consommation_litres REAL DEFAULT 0")
+        except Exception:
+            pass
+    try:
+        cursor.execute("SELECT duree_conduite_minutes FROM donnees_transport LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE donnees_transport ADD COLUMN duree_conduite_minutes INTEGER DEFAULT 0")
+        except Exception:
+            pass
+    try:
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_dt_vehicule ON donnees_transport(vehicule_id)")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 

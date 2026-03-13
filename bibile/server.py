@@ -73,9 +73,10 @@ try:
         list_ville_zone_mapping, save_ville_zone, get_villes_inconnues,
         auto_distribuer, get_external_config, save_external_config,
         list_chauffeurs_sync, save_chauffeurs_sync_selection,
+        list_vehicules_sync, save_vehicules_sync_selection,
         get_donnees_transport, get_extractions_for_date,
     )
-    from bibile.external_sync import SyncManager, test_connection, fetch_external_drivers
+    from bibile.external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
 except ImportError:
     from database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db, get_statistiques, find_duplicates, update_enlevements
     from database_tournees import (
@@ -87,9 +88,10 @@ except ImportError:
         list_ville_zone_mapping, save_ville_zone, get_villes_inconnues,
         auto_distribuer, get_external_config, save_external_config,
         list_chauffeurs_sync, save_chauffeurs_sync_selection,
+        list_vehicules_sync, save_vehicules_sync_selection,
         get_donnees_transport, get_extractions_for_date,
     )
-    from external_sync import SyncManager, test_connection, fetch_external_drivers
+    from external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
 init_db(DB_PATH)
 
 # Gestionnaire de synchro (initialisé au démarrage)
@@ -1301,8 +1303,20 @@ def api_ext_chauffeurs():
         config = get_external_config(DB_PATH)
         if not config:
             return jsonify({'erreur': 'Connexion externe non configuree'}), 400
-        drivers = fetch_external_drivers(config)
-        return jsonify({'chauffeurs': drivers})
+        vehicles = fetch_external_vehicles(config)
+        return jsonify({'chauffeurs': vehicles})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/external-db/vehicules')
+def api_ext_vehicules():
+    try:
+        config = get_external_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion externe non configuree'}), 400
+        vehicles = fetch_external_vehicles(config)
+        return jsonify({'vehicules': vehicles})
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
 
@@ -1317,13 +1331,39 @@ def api_save_ext_chauffeurs_selection():
         return jsonify({'erreur': str(e)}), 500
 
 
+@app.route('/api/external-db/vehicules/selection', methods=['POST'])
+def api_save_ext_vehicules_selection():
+    try:
+        data = request.get_json()
+        save_vehicules_sync_selection(DB_PATH, data.get('selections', []))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/vehicles/positions')
+def api_vehicle_positions():
+    """Positions GPS live des véhicules depuis la BDD DBI."""
+    try:
+        config = get_external_config(DB_PATH)
+        if not config:
+            return jsonify({'positions': []})
+        positions = fetch_vehicle_positions(config)
+        return jsonify({'positions': positions})
+    except Exception as e:
+        return jsonify({'erreur': str(e), 'positions': []}), 500
+
+
 @app.route('/api/donnees-transport')
 def api_donnees_transport():
     try:
+        vehicule_id = request.args.get('vehicule_id', type=int)
         chauffeur_id = request.args.get('chauffeur_id', type=int)
         date_debut = request.args.get('date_debut')
         date_fin = request.args.get('date_fin')
-        data = get_donnees_transport(DB_PATH, chauffeur_id, date_debut, date_fin)
+        data = get_donnees_transport(DB_PATH, vehicule_id=vehicule_id,
+                                     chauffeur_id=chauffeur_id,
+                                     date_debut=date_debut, date_fin=date_fin)
         return jsonify({'donnees': data})
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500

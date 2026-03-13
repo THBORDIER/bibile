@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Toggle vues
-    document.querySelectorAll('.btn-view').forEach(btn => {
+    document.querySelectorAll('.btn-view[data-view]').forEach(btn => {
         btn.addEventListener('click', () => toggleView(btn.dataset.view));
     });
 
@@ -437,7 +437,7 @@ async function autoDistribuer() {
 
 
 function toggleView(view) {
-    document.querySelectorAll('.btn-view').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.btn-view[data-view]').forEach(b => b.classList.remove('active'));
     document.querySelector(`.btn-view[data-view="${view}"]`).classList.add('active');
 
     if (view === 'kanban') {

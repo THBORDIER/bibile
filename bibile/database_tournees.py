@@ -482,7 +482,7 @@ def save_external_config(db_path, data):
                 db_type=?, host=?, port=?, database_name=?, username=?,
                 password_encrypted=?, sync_interval_minutes=?, actif=?
             WHERE nom='default'
-        """, (data.get('db_type', 'mysql'), data['host'], data.get('port', 3306),
+        """, (data.get('db_type', 'sqlserver'), data['host'], data.get('port', 1433),
               data['database_name'], data['username'], data.get('password_encrypted', ''),
               data.get('sync_interval_minutes', 60), data.get('actif', 1)))
     else:
@@ -490,7 +490,7 @@ def save_external_config(db_path, data):
             INSERT INTO external_db_config
                 (nom, db_type, host, port, database_name, username, password_encrypted, sync_interval_minutes, actif)
             VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (data.get('db_type', 'mysql'), data['host'], data.get('port', 3306),
+        """, (data.get('db_type', 'sqlserver'), data['host'], data.get('port', 1433),
               data['database_name'], data['username'], data.get('password_encrypted', ''),
               data.get('sync_interval_minutes', 60), data.get('actif', 1)))
     conn.commit()
@@ -537,17 +537,50 @@ def save_chauffeurs_sync_selection(db_path, selections):
     conn.close()
 
 
+# ===== VEHICULES SYNC (DBI) =====
+
+def list_vehicules_sync(db_path):
+    conn = get_db(db_path)
+    rows = conn.execute("SELECT * FROM vehicules_sync ORDER BY immatriculation").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_vehicules_sync_selection(db_path, selections):
+    """selections = [{externe_id, immatriculation, selectionne}, ...]"""
+    conn = get_db(db_path)
+    for s in selections:
+        existing = conn.execute(
+            "SELECT id FROM vehicules_sync WHERE externe_id = ?", (s['externe_id'],)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE vehicules_sync SET selectionne = ?, immatriculation = ? WHERE externe_id = ?",
+                (s.get('selectionne', 0), s['immatriculation'], s['externe_id'])
+            )
+        else:
+            conn.execute(
+                "INSERT INTO vehicules_sync (externe_id, immatriculation, selectionne) VALUES (?, ?, ?)",
+                (s['externe_id'], s['immatriculation'], s.get('selectionne', 0))
+            )
+    conn.commit()
+    conn.close()
+
+
 # ===== DONNEES TRANSPORT =====
 
-def get_donnees_transport(db_path, chauffeur_id=None, date_debut=None, date_fin=None):
+def get_donnees_transport(db_path, vehicule_id=None, chauffeur_id=None, date_debut=None, date_fin=None):
     conn = get_db(db_path)
     sql = """
-        SELECT dt.*, c.nom as chauffeur_nom, c.prenom as chauffeur_prenom
+        SELECT dt.*, v.immatriculation as vehicule_immat
         FROM donnees_transport dt
-        JOIN chauffeurs c ON c.id = dt.chauffeur_id
+        LEFT JOIN vehicules v ON v.id = dt.vehicule_id
         WHERE 1=1
     """
     params = []
+    if vehicule_id:
+        sql += " AND dt.vehicule_id = ?"
+        params.append(vehicule_id)
     if chauffeur_id:
         sql += " AND dt.chauffeur_id = ?"
         params.append(chauffeur_id)
@@ -564,20 +597,23 @@ def get_donnees_transport(db_path, chauffeur_id=None, date_debut=None, date_fin=
 
 
 def upsert_donnees_transport(db_path, records):
-    """Insère ou met à jour les données transport. records = [{chauffeur_id, date_donnee, ...}, ...]"""
+    """Insère ou met à jour les données transport (liées aux véhicules DBI)."""
     conn = get_db(db_path)
     for r in records:
         conn.execute("""
-            INSERT INTO donnees_transport (chauffeur_id, date_donnee, kilometres, consommation_carburant, duree_travail_minutes, source_externe_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(chauffeur_id, date_donnee) DO UPDATE SET
+            INSERT INTO donnees_transport
+                (vehicule_id, date_donnee, kilometres, consommation_litres,
+                 duree_conduite_minutes, duree_travail_minutes, source_externe_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(vehicule_id, date_donnee) DO UPDATE SET
                 kilometres = excluded.kilometres,
-                consommation_carburant = excluded.consommation_carburant,
+                consommation_litres = excluded.consommation_litres,
+                duree_conduite_minutes = excluded.duree_conduite_minutes,
                 duree_travail_minutes = excluded.duree_travail_minutes,
                 synced_at = CURRENT_TIMESTAMP
-        """, (r['chauffeur_id'], r['date_donnee'], r.get('kilometres', 0),
-              r.get('consommation_carburant', 0), r.get('duree_travail_minutes', 0),
-              r.get('source_externe_id', '')))
+        """, (r['vehicule_id'], r['date_donnee'], r.get('kilometres', 0),
+              r.get('consommation_litres', 0), r.get('duree_conduite_minutes', 0),
+              r.get('duree_travail_minutes', 0), r.get('source_externe_id', '')))
     conn.commit()
     conn.close()
 

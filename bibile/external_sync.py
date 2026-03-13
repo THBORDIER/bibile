@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Bibile - Module de synchronisation avec base de données externe
+Bibile - Module de synchronisation avec BDD DBI (SQL Server Azure)
 
-Gère la connexion à la BDD du prestataire transport (MySQL/PostgreSQL)
-et la synchronisation incrémentale des données chauffeurs/transport.
+Gère la connexion à la BDD DBI du prestataire transport et la
+synchronisation incrémentale des données véhicules/transport.
+
+BDD: SQL Server Azure (read-only, 90 jours de rétention)
+Tables: Vehicle, StartStopEvent, DailyCumulationVehicle, LastPositionVehicle, [User]
+Timestamps: epoch millisecondes UTC
 """
 
 import threading
@@ -14,13 +18,13 @@ from datetime import datetime, timedelta
 try:
     from bibile.database_tournees import (
         get_external_config, update_derniere_sync,
-        list_chauffeurs_sync, upsert_donnees_transport, save_chauffeur
+        list_vehicules_sync, upsert_donnees_transport,
     )
     from bibile.database import get_db
 except ImportError:
     from database_tournees import (
         get_external_config, update_derniere_sync,
-        list_chauffeurs_sync, upsert_donnees_transport, save_chauffeur
+        list_vehicules_sync, upsert_donnees_transport,
     )
     from database import get_db
 
@@ -28,71 +32,111 @@ logger = logging.getLogger('bibile.sync')
 
 
 def _get_connection(config):
-    """Crée une connexion à la BDD externe."""
-    db_type = config.get('db_type', 'mysql')
-    if db_type == 'mysql':
-        import mysql.connector
-        return mysql.connector.connect(
-            host=config['host'],
-            port=config.get('port', 3306),
-            database=config['database_name'],
-            user=config['username'],
-            password=config.get('password_encrypted', ''),
-            connect_timeout=10,
-        )
-    elif db_type == 'postgresql':
-        import psycopg2
-        return psycopg2.connect(
-            host=config['host'],
-            port=config.get('port', 5432),
-            dbname=config['database_name'],
-            user=config['username'],
-            password=config.get('password_encrypted', ''),
-            connect_timeout=10,
-        )
-    else:
-        raise ValueError(f"Type de base non supporte: {db_type}")
+    """Crée une connexion à la BDD DBI (SQL Server Azure)."""
+    import pymssql
+    return pymssql.connect(
+        server=config['host'],
+        port=int(config.get('port', 1433)),
+        user=config['username'],
+        password=config.get('password_encrypted', ''),
+        database=config['database_name'],
+        login_timeout=15,
+        timeout=30,
+        as_dict=True,
+    )
 
 
 def test_connection(config):
-    """Teste la connexion à la BDD externe. Retourne (success, message)."""
+    """Teste la connexion à la BDD DBI. Retourne (success, message)."""
     try:
         conn = _get_connection(config)
         cursor = conn.cursor()
-        cursor.execute("SELECT 1")
+        cursor.execute("SELECT 1 AS ok")
+        cursor.fetchone()
+        # Compter les véhicules actifs
+        cursor.execute("SELECT COUNT(*) AS cnt FROM Vehicle WHERE active = 1")
+        row = cursor.fetchone()
+        nb = row['cnt'] if row else 0
         cursor.close()
         conn.close()
-        return True, "Connexion reussie"
+        return True, f"Connexion reussie — {nb} vehicule(s) actif(s)"
     except Exception as e:
         return False, str(e)
 
 
-def fetch_external_drivers(config):
-    """
-    Récupère la liste des chauffeurs depuis la BDD externe.
-    NOTE: La requête SQL doit être adaptée au schéma du prestataire.
-    """
+def fetch_external_vehicles(config):
+    """Récupère la liste des véhicules actifs depuis la BDD DBI."""
     try:
         conn = _get_connection(config)
         cursor = conn.cursor()
-        # Requête générique - à adapter selon le schéma du prestataire
         cursor.execute("""
-            SELECT id, nom, prenom
-            FROM chauffeurs
-            WHERE actif = 1
-            ORDER BY nom
+            SELECT id, licensePlateNumber
+            FROM Vehicle
+            WHERE active = 1
+            ORDER BY licensePlateNumber
         """)
-        drivers = []
+        vehicles = []
         for row in cursor.fetchall():
-            drivers.append({
-                'externe_id': str(row[0]),
-                'nom': f"{row[1]} {row[2]}".strip(),
+            vehicles.append({
+                'externe_id': str(row['id']),
+                'immatriculation': row['licensePlateNumber'] or '',
             })
         cursor.close()
         conn.close()
-        return drivers
+        return vehicles
     except Exception as e:
-        logger.error(f"Erreur fetch chauffeurs externes: {e}")
+        logger.error(f"Erreur fetch vehicules DBI: {e}")
+        return []
+
+
+def fetch_vehicle_positions(config):
+    """Récupère les positions GPS live des véhicules avec chauffeur courant."""
+    try:
+        conn = _get_connection(config)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                v.id AS vehicleId,
+                v.licensePlateNumber,
+                lpv.latitude,
+                lpv.longitude,
+                lpv.speed,
+                lpv.[timestamp] AS gpsTimestampEpochMs,
+                u.firstName,
+                u.lastName,
+                CASE
+                    WHEN DATEDIFF(SECOND,
+                        DATEADD(s, lpv.[timestamp] / 1000, '19700101'),
+                        GETUTCDATE()
+                    ) <= 120 THEN 1
+                    ELSE 0
+                END AS isFresh
+            FROM Vehicle v
+            INNER JOIN LastPositionVehicle lpv ON lpv.vehicleId = v.id
+            LEFT JOIN [User] u ON u.id = lpv.userId
+            WHERE v.active = 1
+            ORDER BY v.licensePlateNumber
+        """)
+        positions = []
+        for row in cursor.fetchall():
+            if row['latitude'] is None or row['longitude'] is None:
+                continue
+            ts_ms = row['gpsTimestampEpochMs'] or 0
+            positions.append({
+                'vehicleId': row['vehicleId'],
+                'immatriculation': row['licensePlateNumber'] or '',
+                'lat': float(row['latitude']),
+                'lon': float(row['longitude']),
+                'speed': float(row['speed'] or 0),
+                'timestamp': datetime.utcfromtimestamp(ts_ms / 1000).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                'chauffeur': f"{row['firstName'] or ''} {row['lastName'] or ''}".strip() or None,
+                'isFresh': bool(row['isFresh']),
+            })
+        cursor.close()
+        conn.close()
+        return positions
+    except Exception as e:
+        logger.error(f"Erreur fetch positions DBI: {e}")
         return []
 
 
@@ -109,26 +153,22 @@ class SyncManager:
         self._is_syncing = False
 
     def start(self):
-        """Démarre le thread de synchronisation."""
         if self._thread and self._thread.is_alive():
             return
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name='bibile-sync')
         self._thread.start()
-        logger.info("SyncManager demarré")
+        logger.info("SyncManager demarre")
 
     def stop(self):
-        """Arrête le thread de synchronisation."""
         self._stop_event.set()
-        self._trigger_event.set()  # Débloquer le wait
+        self._trigger_event.set()
         if self._thread:
             self._thread.join(timeout=5)
 
     def trigger_sync(self):
-        """Déclenche une synchronisation immédiate."""
         self._trigger_event.set()
 
     def get_status(self):
-        """Retourne le statut courant."""
         config = get_external_config(self.db_path)
         return {
             'configured': config is not None,
@@ -140,10 +180,9 @@ class SyncManager:
         }
 
     def _run_loop(self):
-        """Boucle principale du thread de synchronisation."""
         while not self._stop_event.is_set():
             config = get_external_config(self.db_path)
-            interval = 300  # 5 min par défaut
+            interval = 300
 
             if config and config.get('actif'):
                 interval = config.get('sync_interval_minutes', 60) * 60
@@ -153,12 +192,11 @@ class SyncManager:
                     self._last_error = str(e)
                     logger.error(f"Erreur sync: {e}")
 
-            # Attendre l'intervalle ou un déclenchement manuel
             self._trigger_event.wait(timeout=interval)
             self._trigger_event.clear()
 
     def _do_sync(self, config):
-        """Effectue la synchronisation incrémentale."""
+        """Synchronisation incrémentale depuis la BDD DBI."""
         self._is_syncing = True
         self._last_error = None
 
@@ -166,75 +204,125 @@ class SyncManager:
             conn_ext = _get_connection(config)
             cursor = conn_ext.cursor()
 
-            # Récupérer les chauffeurs sélectionnés pour la synchro
-            chauffeurs_sync = list_chauffeurs_sync(self.db_path)
-            selected = [c for c in chauffeurs_sync if c.get('selectionne')]
+            # Véhicules sélectionnés pour la synchro
+            vehicules_sync = list_vehicules_sync(self.db_path)
+            selected = [v for v in vehicules_sync if v.get('selectionne')]
 
             if not selected:
                 self._is_syncing = False
+                cursor.close()
+                conn_ext.close()
                 return
 
-            # Déterminer la date de début de synchro
+            # Date de début : dernière sync ou 90 jours
             derniere_sync = config.get('derniere_sync')
             if derniere_sync:
-                date_debut = derniere_sync[:10]  # YYYY-MM-DD
+                since_date = datetime.fromisoformat(derniere_sync[:19])
             else:
-                # Première synchro : récupérer les 3 derniers mois
-                date_debut = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+                since_date = datetime.utcnow() - timedelta(days=90)
 
-            # Pour chaque chauffeur sélectionné, récupérer les données
+            since_epoch_ms = int(since_date.timestamp() * 1000)
+
+            # Synchro véhicules locaux (créer/mettre à jour)
             conn_local = get_db(self.db_path)
+            externe_ids = [v['externe_id'] for v in selected]
 
-            for ch in selected:
-                externe_id = ch['externe_id']
+            for vs in selected:
+                ext_id = vs['externe_id']
+                immat = vs.get('immatriculation', vs.get('nom', ''))
 
-                # S'assurer que le chauffeur existe localement
                 local = conn_local.execute(
-                    "SELECT id FROM chauffeurs WHERE externe_id = ?", (externe_id,)
+                    "SELECT id FROM vehicules WHERE externe_id = ?", (ext_id,)
                 ).fetchone()
 
                 if not local:
-                    # Créer le chauffeur localement
-                    parts = ch['nom'].split(' ', 1)
-                    chauffeur_id = save_chauffeur(self.db_path, {
-                        'nom': parts[0],
-                        'prenom': parts[1] if len(parts) > 1 else '',
-                        'externe_id': externe_id,
-                    })
-                else:
-                    chauffeur_id = local['id']
+                    conn_local.execute("""
+                        INSERT INTO vehicules (immatriculation, externe_id, actif)
+                        VALUES (?, ?, 1)
+                    """, (immat, ext_id))
+                    conn_local.commit()
 
-                # Requête sur la BDD externe (à adapter au schéma du prestataire)
-                try:
-                    cursor.execute("""
-                        SELECT date_donnee, kilometres, consommation, duree_minutes
-                        FROM donnees_transport
-                        WHERE chauffeur_id = %s AND date_donnee >= %s
-                        ORDER BY date_donnee
-                    """, (externe_id, date_debut))
+            # Récupérer les IDs locaux pour le mapping
+            local_vehicles = {}
+            for vs in selected:
+                row = conn_local.execute(
+                    "SELECT id FROM vehicules WHERE externe_id = ?", (vs['externe_id'],)
+                ).fetchone()
+                if row:
+                    local_vehicles[vs['externe_id']] = row['id']
 
-                    records = []
-                    for row in cursor.fetchall():
-                        records.append({
-                            'chauffeur_id': chauffeur_id,
-                            'date_donnee': str(row[0]),
-                            'kilometres': float(row[1] or 0),
-                            'consommation_carburant': float(row[2] or 0),
-                            'duree_travail_minutes': int(row[3] or 0),
-                            'source_externe_id': externe_id,
-                        })
+            # Synchro DailyCumulationVehicle (km, durées)
+            placeholders = ','.join(['%s'] * len(externe_ids))
+            int_ids = [int(eid) for eid in externe_ids]
 
-                    if records:
-                        upsert_donnees_transport(self.db_path, records)
+            cursor.execute(f"""
+                SELECT
+                    vehicleId,
+                    CONVERT(DATE, DATEADD(s, [timestamp]/1000, '19700101')) AS date_donnee,
+                    totalMileage / 1000.0 AS kilometres,
+                    drivingDuration / 60 AS duree_conduite_minutes,
+                    workingDuration / 60 AS duree_travail_minutes
+                FROM DailyCumulationVehicle
+                WHERE vehicleId IN ({placeholders})
+                  AND [timestamp] >= %s
+            """, (*int_ids, since_epoch_ms))
 
-                except Exception as e:
-                    logger.warning(f"Erreur sync chauffeur {externe_id}: {e}")
+            daily_data = {}
+            for row in cursor.fetchall():
+                key = (str(row['vehicleId']), str(row['date_donnee']))
+                daily_data[key] = {
+                    'kilometres': float(row['kilometres'] or 0),
+                    'duree_conduite_minutes': int(row['duree_conduite_minutes'] or 0),
+                    'duree_travail_minutes': int(row['duree_travail_minutes'] or 0),
+                }
+
+            # Synchro StartStopEvent (consommation carburant)
+            cursor.execute(f"""
+                SELECT
+                    vehicleId,
+                    CONVERT(DATE, DATEADD(s, [timestamp]/1000, '19700101')) AS date_donnee,
+                    SUM(fuelConsumption) AS consommation_litres
+                FROM StartStopEvent
+                WHERE vehicleId IN ({placeholders})
+                  AND [timestamp] >= %s
+                GROUP BY vehicleId,
+                    CONVERT(DATE, DATEADD(s, [timestamp]/1000, '19700101'))
+            """, (*int_ids, since_epoch_ms))
+
+            fuel_data = {}
+            for row in cursor.fetchall():
+                key = (str(row['vehicleId']), str(row['date_donnee']))
+                fuel_data[key] = float(row['consommation_litres'] or 0)
+
+            # Fusionner et upsert dans SQLite
+            records = []
+            all_keys = set(daily_data.keys()) | set(fuel_data.keys())
+            for key in all_keys:
+                ext_vid, date_str = key
+                local_vid = local_vehicles.get(ext_vid)
+                if not local_vid:
+                    continue
+
+                daily = daily_data.get(key, {})
+                conso = fuel_data.get(key, 0)
+
+                records.append({
+                    'vehicule_id': local_vid,
+                    'date_donnee': date_str,
+                    'kilometres': daily.get('kilometres', 0),
+                    'consommation_litres': conso,
+                    'duree_conduite_minutes': daily.get('duree_conduite_minutes', 0),
+                    'duree_travail_minutes': daily.get('duree_travail_minutes', 0),
+                    'source_externe_id': ext_vid,
+                })
+
+            if records:
+                upsert_donnees_transport(self.db_path, records)
 
             conn_local.close()
             cursor.close()
             conn_ext.close()
 
-            # Mettre à jour la date de dernière synchro
             update_derniere_sync(self.db_path)
             self._last_sync = datetime.now().isoformat()
 

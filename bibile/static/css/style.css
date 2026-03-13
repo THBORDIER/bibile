@@ -1644,6 +1644,22 @@ kbd {
     flex-shrink: 0;
 }
 
+/* Truck markers */
+.truck-marker {
+    background: none !important;
+    border: none !important;
+}
+
+.btn-vehicles {
+    position: relative;
+}
+
+.btn-vehicles.active {
+    background: var(--accent-color) !important;
+    color: #fff !important;
+    border-color: var(--accent-color) !important;
+}
+
 /* Leaflet dark theme overrides */
 .leaflet-container {
     background: var(--bg-primary);

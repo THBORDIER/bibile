@@ -187,23 +187,22 @@
                 <div class="form-group">
                     <label>Type de base</label>
                     <select id="inputDbType" class="form-select">
-                        <option value="mysql">MySQL</option>
-                        <option value="postgresql">PostgreSQL</option>
+                        <option value="sqlserver" selected>SQL Server</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Hote</label>
-                    <input type="text" id="inputDbHost" class="form-input" placeholder="192.168.1.100">
+                    <input type="text" id="inputDbHost" class="form-input" placeholder="serveur.database.windows.net">
                 </div>
                 <div class="form-group">
                     <label>Port</label>
-                    <input type="number" id="inputDbPort" class="form-input" value="3306">
+                    <input type="number" id="inputDbPort" class="form-input" value="1433">
                 </div>
             </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Base de donnees</label>
-                    <input type="text" id="inputDbName" class="form-input" placeholder="transport_db">
+                    <input type="text" id="inputDbName" class="form-input" placeholder="DBI_XXXXX">
                 </div>
                 <div class="form-group">
                     <label>Utilisateur</label>
@@ -230,14 +229,14 @@
         <div id="connectionResult" class="alert hidden"></div>
     </div>
 
-    <!-- Selection chauffeurs externes -->
+    <!-- Selection vehicules externes -->
     <div class="card" style="margin-top: 16px;">
         <div class="card-header">
-            <h3>Chauffeurs a synchroniser</h3>
+            <h3>Vehicules a synchroniser</h3>
             <button id="btnRefreshExtDrivers" class="btn btn-sm btn-secondary">Rafraichir la liste</button>
         </div>
         <div id="extDriversList" class="ext-drivers-list">
-            <p class="text-muted">Configurez la connexion externe pour voir les chauffeurs disponibles.</p>
+            <p class="text-muted">Configurez la connexion externe pour voir les vehicules disponibles.</p>
         </div>
     </div>
 

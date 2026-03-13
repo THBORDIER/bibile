@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnTestConnection').addEventListener('click', testConnection);
     document.getElementById('btnSaveDbConfig').addEventListener('click', saveDbConfig);
     document.getElementById('btnSyncNow').addEventListener('click', syncNow);
-    document.getElementById('btnRefreshExtDrivers').addEventListener('click', loadExtDrivers);
+    document.getElementById('btnRefreshExtDrivers').addEventListener('click', loadExtVehicles);
 
     // Charger les données
     loadZones();
@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadVehicules();
     loadDbConfig();
     loadSyncStatus();
+    loadExtVehicles();
 });
 
 
@@ -462,9 +463,9 @@ async function loadDbConfig() {
         const data = await resp.json();
         if (data.config) {
             const c = data.config;
-            document.getElementById('inputDbType').value = c.db_type || 'mysql';
+            document.getElementById('inputDbType').value = c.db_type || 'sqlserver';
             document.getElementById('inputDbHost').value = c.host || '';
-            document.getElementById('inputDbPort').value = c.port || 3306;
+            document.getElementById('inputDbPort').value = c.port || 1433;
             document.getElementById('inputDbName').value = c.database_name || '';
             document.getElementById('inputDbUser').value = c.username || '';
             document.getElementById('inputSyncInterval').value = c.sync_interval_minutes || 60;
@@ -508,7 +509,7 @@ function getDbFormData() {
     return {
         db_type: document.getElementById('inputDbType').value,
         host: document.getElementById('inputDbHost').value.trim(),
-        port: parseInt(document.getElementById('inputDbPort').value) || 3306,
+        port: parseInt(document.getElementById('inputDbPort').value) || 1433,
         database_name: document.getElementById('inputDbName').value.trim(),
         username: document.getElementById('inputDbUser').value.trim(),
         password_encrypted: document.getElementById('inputDbPass').value,
@@ -574,49 +575,56 @@ async function syncNow() {
     }
 }
 
-async function loadExtDrivers() {
+async function loadExtVehicles() {
     const container = document.getElementById('extDriversList');
     container.innerHTML = '<p class="text-muted">Chargement...</p>';
     try {
-        const resp = await fetch('/api/external-db/chauffeurs');
+        const resp = await fetch('/api/external-db/vehicules');
         const data = await resp.json();
         if (data.erreur) {
             container.innerHTML = `<p class="text-muted">${escapeHtml(data.erreur)}</p>`;
             return;
         }
-        const drivers = data.chauffeurs || [];
-        if (drivers.length === 0) {
-            container.innerHTML = '<p class="text-muted">Aucun chauffeur trouve.</p>';
+        const vehicles = data.vehicules || [];
+        if (vehicles.length === 0) {
+            container.innerHTML = '<p class="text-muted">Aucun vehicule trouve.</p>';
             return;
         }
 
         // Charger les sélections actuelles
-        const syncResp = await fetch('/api/external-db/chauffeurs');
-        container.innerHTML = drivers.map(d => `
+        const syncResp = await fetch('/api/external-db/vehicules');
+        const syncData = await syncResp.json();
+        const selectedIds = new Set((syncData.vehicules || []).filter(v => v.selectionne).map(v => v.externe_id));
+
+        container.innerHTML = vehicles.map(v => `
             <label class="ext-driver-item">
-                <input type="checkbox" class="ext-driver-check" data-id="${escapeAttr(d.externe_id)}" data-nom="${escapeAttr(d.nom)}">
-                ${escapeHtml(d.nom)}
+                <input type="checkbox" class="ext-vehicle-check" data-id="${escapeAttr(v.externe_id)}" data-immat="${escapeAttr(v.immatriculation)}" ${selectedIds.has(v.externe_id) ? 'checked' : ''}>
+                ${escapeHtml(v.immatriculation)}
             </label>
-        `).join('') + '<br><button class="btn btn-primary btn-sm" onclick="saveExtDriverSelection()">Enregistrer la selection</button>';
+        `).join('') + '<br><button class="btn btn-primary btn-sm" onclick="saveExtVehicleSelection()">Enregistrer la selection</button>';
     } catch (e) {
         container.innerHTML = `<p class="text-muted">Erreur: ${e.message}</p>`;
     }
 }
 
-async function saveExtDriverSelection() {
-    const checks = document.querySelectorAll('.ext-driver-check');
+async function saveExtVehicleSelection() {
+    const checks = document.querySelectorAll('.ext-vehicle-check');
     const selections = Array.from(checks).map(ch => ({
         externe_id: ch.dataset.id,
-        nom: ch.dataset.nom,
+        immatriculation: ch.dataset.immat,
         selectionne: ch.checked ? 1 : 0,
     }));
 
     try {
-        await fetch('/api/external-db/chauffeurs/selection', {
+        await fetch('/api/external-db/vehicules/selection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ selections }),
         });
+        const result = document.getElementById('connectionResult');
+        result.classList.remove('hidden', 'alert-danger', 'alert-info');
+        result.classList.add('alert-success');
+        result.textContent = 'Selection vehicules enregistree.';
     } catch (e) {
         console.error('Erreur sauvegarde selection:', e);
     }
