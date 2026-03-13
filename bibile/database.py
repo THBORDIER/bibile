@@ -196,6 +196,25 @@ def init_db(db_path):
         );
         CREATE INDEX IF NOT EXISTS idx_dt_chauffeur ON donnees_transport(chauffeur_id);
         CREATE INDEX IF NOT EXISTS idx_dt_date ON donnees_transport(date_donnee);
+
+        -- Messages EDI (Drakkar)
+        CREATE TABLE IF NOT EXISTS edi_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_ligne INTEGER,
+            code_indus TEXT,
+            sens TEXT,
+            date_trans TEXT,
+            fich_suiv TEXT,
+            ref_message TEXT,
+            ident_message TEXT,
+            total_colis INTEGER,
+            total_poids REAL,
+            total_positions INTEGER,
+            source_cnx TEXT,
+            date_sync TEXT,
+            UNIQUE(id_ligne)
+        );
+        CREATE INDEX IF NOT EXISTS idx_edi_date ON edi_messages(date_trans);
     """)
     conn.commit()
 

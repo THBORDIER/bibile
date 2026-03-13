@@ -38,12 +38,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnSyncNow').addEventListener('click', syncNow);
     document.getElementById('btnRefreshExtDrivers').addEventListener('click', loadExtVehicles);
 
+    // === DRAKKAR ===
+    document.getElementById('btnTestDrakkar').addEventListener('click', testDrakkar);
+    document.getElementById('btnSaveDrakkar').addEventListener('click', saveDrakkar);
+
     // === RECHERCHE ===
     document.getElementById('searchChauffeurs').addEventListener('input', filterChauffeurs);
     document.getElementById('searchVehicules').addEventListener('input', filterVehicules);
     document.getElementById('searchExtVehicles').addEventListener('input', filterExtVehicles);
 
     // Charger les données
+    loadDrakkarConfig();
     loadZones();
     loadMapping();
     loadUnknownCities();
@@ -683,4 +688,80 @@ function escapeHtml(str) {
 function escapeAttr(str) {
     if (!str) return '';
     return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+
+// ===== DRAKKAR (EDI) =====
+
+async function loadDrakkarConfig() {
+    try {
+        const resp = await fetch('/api/drakkar/config');
+        const data = await resp.json();
+        if (data.config) {
+            const c = data.config;
+            document.getElementById('inputDrakkarHost').value = c.host || '';
+            document.getElementById('inputDrakkarPort').value = c.port || 49372;
+            document.getElementById('inputDrakkarName').value = c.database_name || '';
+            document.getElementById('inputDrakkarUser').value = c.username || '';
+        }
+    } catch (e) {
+        console.error('Erreur chargement config Drakkar:', e);
+    }
+}
+
+function getDrakkarFormData() {
+    return {
+        host: document.getElementById('inputDrakkarHost').value,
+        port: parseInt(document.getElementById('inputDrakkarPort').value) || 49372,
+        database_name: document.getElementById('inputDrakkarName').value,
+        username: document.getElementById('inputDrakkarUser').value,
+        password_encrypted: document.getElementById('inputDrakkarPass').value,
+        db_type: 'sqlserver',
+    };
+}
+
+async function testDrakkar() {
+    const resultDiv = document.getElementById('drakkarResult');
+    resultDiv.classList.remove('hidden', 'alert-success', 'alert-danger');
+    resultDiv.textContent = 'Test en cours...';
+    resultDiv.classList.add('alert-info');
+    try {
+        const resp = await fetch('/api/drakkar/test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(getDrakkarFormData()),
+        });
+        const data = await resp.json();
+        resultDiv.classList.remove('alert-info');
+        if (data.success) {
+            resultDiv.classList.add('alert-success');
+            resultDiv.textContent = data.message;
+        } else {
+            resultDiv.classList.add('alert-danger');
+            resultDiv.textContent = data.message;
+        }
+    } catch (e) {
+        resultDiv.classList.remove('alert-info');
+        resultDiv.classList.add('alert-danger');
+        resultDiv.textContent = 'Erreur: ' + e.message;
+    }
+}
+
+async function saveDrakkar() {
+    try {
+        const resp = await fetch('/api/drakkar/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(getDrakkarFormData()),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            const resultDiv = document.getElementById('drakkarResult');
+            resultDiv.classList.remove('hidden', 'alert-danger', 'alert-info');
+            resultDiv.classList.add('alert-success');
+            resultDiv.textContent = 'Configuration Drakkar enregistree.';
+        }
+    } catch (e) {
+        console.error('Erreur sauvegarde config Drakkar:', e);
+    }
 }

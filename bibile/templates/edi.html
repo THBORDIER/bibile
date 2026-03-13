@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}EDI - Bibile{% endblock %}
+{% block page_title %}Comparaison EDI{% endblock %}
+{% block page_subtitle %}Rapprochement messages EDI vs extractions PDF{% endblock %}
+
+{% block content %}
+<!-- Toolbar -->
+<div class="card">
+    <div class="toolbar-row">
+        <div class="toolbar-group">
+            <label>Date</label>
+            <div class="date-nav">
+                <button id="btnPrevDayEdi" class="btn-nav" title="Jour precedent">&lt;</button>
+                <input type="date" id="ediDatePicker" class="form-input">
+                <button id="btnNextDayEdi" class="btn-nav" title="Jour suivant">&gt;</button>
+                <button id="btnTodayEdi" class="btn-nav btn-today" title="Aujourd'hui">Auj.</button>
+            </div>
+        </div>
+        <div class="toolbar-actions">
+            <button id="btnCompare" class="btn btn-primary">Comparer</button>
+            <button id="btnViewEdiRaw" class="btn btn-secondary">Voir EDI bruts</button>
+        </div>
+    </div>
+</div>
+
+<!-- Statistiques -->
+<div id="ediStats" class="edi-stats hidden">
+    <div class="stat-card stat-pdf">
+        <div class="stat-value" id="statPdf">0</div>
+        <div class="stat-label">Enlevements PDF</div>
+    </div>
+    <div class="stat-card stat-edi">
+        <div class="stat-value" id="statEdi">0</div>
+        <div class="stat-label">Messages EDI</div>
+    </div>
+    <div class="stat-card stat-match">
+        <div class="stat-value" id="statMatched">0</div>
+        <div class="stat-label">Correspondances</div>
+    </div>
+    <div class="stat-card stat-warning">
+        <div class="stat-value" id="statEcarts">0</div>
+        <div class="stat-label">Ecarts</div>
+    </div>
+    <div class="stat-card stat-missing">
+        <div class="stat-value" id="statPdfOnly">0</div>
+        <div class="stat-label">PDF seul</div>
+    </div>
+    <div class="stat-card stat-missing">
+        <div class="stat-value" id="statEdiOnly">0</div>
+        <div class="stat-label">EDI seul</div>
+    </div>
+</div>
+
+<!-- Tableau de comparaison -->
+<div id="ediResultCard" class="card hidden" style="margin-top: 16px;">
+    <div class="card-header">
+        <h3>Resultat de la comparaison</h3>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Statut</th>
+                <th>N Enlevement</th>
+                <th>Societe</th>
+                <th>PDF Palettes</th>
+                <th>EDI Positions</th>
+                <th>PDF Poids</th>
+                <th>EDI Poids</th>
+                <th>PDF Colis</th>
+                <th>EDI Colis</th>
+            </tr>
+        </thead>
+        <tbody id="ediResultBody"></tbody>
+    </table>
+</div>
+
+<!-- Vue EDI parses -->
+<div id="ediRawCard" class="card hidden" style="margin-top: 16px;">
+    <div class="card-header">
+        <h3>Shipments EDI (contenu XML)</h3>
+        <span id="ediRawCount" class="kanban-count">0</span>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Shipment ID</th>
+                <th>Ref Transaction</th>
+                <th>Expediteur</th>
+                <th>Ville</th>
+                <th>Colis</th>
+                <th>Palettes</th>
+                <th>Type</th>
+                <th>Poids (kg)</th>
+                <th>Date enl.</th>
+                <th>Destination</th>
+            </tr>
+        </thead>
+        <tbody id="ediRawBody"></tbody>
+    </table>
+</div>
+
+<!-- Message si pas configure -->
+<div id="ediNotConfigured" class="card hidden" style="margin-top: 16px;">
+    <div style="padding: 32px; text-align: center;">
+        <p style="color: #8b949e;">La connexion Drakkar n'est pas configuree.</p>
+        <a href="/parametres" class="btn btn-primary">Configurer dans les parametres</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/edi.js"></script>
+{% endblock %}

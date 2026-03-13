@@ -507,6 +507,39 @@ def update_derniere_sync(db_path):
     conn.close()
 
 
+# ===== DRAKKAR CONFIG =====
+
+def get_drakkar_config(db_path):
+    conn = get_db(db_path)
+    row = conn.execute("SELECT * FROM external_db_config WHERE nom = 'drakkar'").fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_drakkar_config(db_path, data):
+    conn = get_db(db_path)
+    existing = conn.execute("SELECT id FROM external_db_config WHERE nom = 'drakkar'").fetchone()
+    if existing:
+        conn.execute("""
+            UPDATE external_db_config SET
+                db_type=?, host=?, port=?, database_name=?, username=?,
+                password_encrypted=?, actif=?
+            WHERE nom='drakkar'
+        """, (data.get('db_type', 'sqlserver'), data['host'], data.get('port', 49372),
+              data['database_name'], data['username'], data.get('password_encrypted', ''),
+              data.get('actif', 1)))
+    else:
+        conn.execute("""
+            INSERT INTO external_db_config
+                (nom, db_type, host, port, database_name, username, password_encrypted, actif)
+            VALUES ('drakkar', ?, ?, ?, ?, ?, ?, ?)
+        """, (data.get('db_type', 'sqlserver'), data['host'], data.get('port', 49372),
+              data['database_name'], data['username'], data.get('password_encrypted', ''),
+              data.get('actif', 1)))
+    conn.commit()
+    conn.close()
+
+
 # ===== CHAUFFEURS SYNC =====
 
 def list_chauffeurs_sync(db_path):

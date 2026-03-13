@@ -47,6 +47,7 @@ if getattr(sys, '_MEIPASS', None):
 else:
     app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+app.json.ensure_ascii = False
 
 # Dossiers de donnees (historique + logs)
 # En mode desktop, BIBILE_DATA_DIR pointe vers %APPDATA%/Bibile
@@ -77,6 +78,9 @@ try:
         get_donnees_transport, get_extractions_for_date,
     )
     from bibile.external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
+    from bibile.database_tournees import get_drakkar_config, save_drakkar_config
+    from bibile.edi_sync import test_drakkar_connection, fetch_edi_messages, fetch_edi_stats, fetch_edi_parsed
+    from bibile.edi_comparator import compare_edi_pdf
 except ImportError:
     from database import init_db, save_extraction, list_extractions, get_extraction_data, get_extraction_log, generate_excel_from_db, get_statistiques, find_duplicates, update_enlevements
     from database_tournees import (
@@ -92,6 +96,9 @@ except ImportError:
         get_donnees_transport, get_extractions_for_date,
     )
     from external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
+    from database_tournees import get_drakkar_config, save_drakkar_config
+    from edi_sync import test_drakkar_connection, fetch_edi_messages, fetch_edi_stats, fetch_edi_parsed
+    from edi_comparator import compare_edi_pdf
 init_db(DB_PATH)
 
 # Version
@@ -1541,6 +1548,109 @@ def api_update_apply():
     apply_update(zip_path, app_dir)
 
     return jsonify({'ok': True})
+
+
+# ===== EDI DRAKKAR =====
+
+@app.route('/edi')
+def page_edi():
+    return render_template('edi.html', active_page='edi')
+
+
+@app.route('/api/drakkar/config')
+def api_drakkar_config_get():
+    try:
+        config = get_drakkar_config(DB_PATH)
+        if config:
+            config.pop('password_encrypted', None)
+        return jsonify({'config': config})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/drakkar/config', methods=['POST'])
+def api_drakkar_config_save():
+    try:
+        data = request.json
+        save_drakkar_config(DB_PATH, data)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/drakkar/test', methods=['POST'])
+def api_drakkar_test():
+    try:
+        data = request.json
+        success, message = test_drakkar_connection(data)
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/drakkar/edi')
+def api_drakkar_edi():
+    """Recupere les messages EDI parses pour une date."""
+    try:
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+        date = request.args.get('date')
+        shipments = fetch_edi_parsed(config, date_from=date, date_to=date)
+        return jsonify({'shipments': shipments, 'count': len(shipments)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/drakkar/stats')
+def api_drakkar_stats():
+    """Stats EDI pour une periode."""
+    try:
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+        date_from = request.args.get('from')
+        date_to = request.args.get('to')
+        stats = fetch_edi_stats(config, date_from=date_from, date_to=date_to)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/drakkar/compare')
+def api_drakkar_compare():
+    """Compare EDI vs PDF pour une date."""
+    try:
+        date = request.args.get('date')
+        if not date:
+            return jsonify({'erreur': 'Parametre date requis'}), 400
+
+        # Recuperer les EDI depuis Drakkar
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+        edi_messages = fetch_edi_messages(config, date_from=date, date_to=date)
+
+        # Recuperer les enlevements PDF depuis SQLite
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+        conn = _get_db(DB_PATH)
+        rows = conn.execute("""
+            SELECT e.* FROM enlevements e
+            JOIN extractions ex ON e.extraction_id = ex.id
+            WHERE DATE(ex.date_creation) = ?
+            ORDER BY e.num_enlevement
+        """, (date,)).fetchall()
+        conn.close()
+        pdf_enlevements = [dict(r) for r in rows]
+
+        # Comparer
+        result = compare_edi_pdf(edi_messages, pdf_enlevements)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
 
 
 if __name__ == '__main__':

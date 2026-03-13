@@ -7,10 +7,12 @@ Application desktop (pywebview + Flask) pour extraire les donnees d'enlevements 
 ```
 main.py                # Entry point desktop (pywebview + Flask en thread + init DB + SyncManager + update check)
 bibile/
-  server.py            # Backend Flask (logique metier + routes API + routes update)
+  server.py            # Backend Flask (logique metier + routes API + routes update + routes EDI)
   database.py          # Module SQLite (stockage extractions + enlevements + schema tournees)
-  database_tournees.py # CRUD tournees, chauffeurs, vehicules, zones, synchro
+  database_tournees.py # CRUD tournees, chauffeurs, vehicules, zones, synchro, config Drakkar
   external_sync.py     # SyncManager (thread daemon, connexion BDD externe SQL Server Azure)
+  edi_sync.py          # Connexion Drakkar (SQL Express), fetch + parse XML EDI Hillebrand
+  edi_comparator.py    # Comparaison EDI vs PDF (rapprochement, ecarts)
   updater.py           # Systeme de mise a jour automatique depuis GitHub Releases
   version.py           # Version unique de l'application (__version__)
   templates/
@@ -18,7 +20,8 @@ bibile/
     index.html         # Page d'accueil (extraction)
     donnees.html       # Visualisation des donnees
     tournees.html      # Kanban + carte des tournees + geolocalisation vehicules
-    parametres.html    # Parametres (zones, chauffeurs, vehicules, connexion externe)
+    edi.html            # Page comparaison EDI vs PDF
+    parametres.html    # Parametres (zones, chauffeurs, vehicules, connexion externe, Drakkar)
     statistiques.html  # Page statistiques
     historique.html    # Historique des fichiers
     aide.html          # Aide / documentation
@@ -29,9 +32,10 @@ bibile/
     js/donnees.js      # JS page donnees
     js/historique.js   # JS page historique
     js/statistiques.js # JS page statistiques
+    js/edi.js          # JS page EDI (comparaison, tri colonnes)
     js/tournees.js     # JS Kanban (SortableJS)
     js/carte.js        # JS carte (Leaflet) + couche vehicules GPS
-    js/parametres.js   # JS parametres (config BDD externe)
+    js/parametres.js   # JS parametres (config BDD externe + Drakkar)
     js/sortable.min.js # SortableJS (local)
     js/leaflet.min.js  # Leaflet JS (local)
 bibile.spec            # Config PyInstaller (inclut pymssql, pymupdf)
@@ -65,6 +69,22 @@ build.bat              # Script de build .exe + creation ZIP release
 2. `build.bat` → produit `dist/Bibile/Bibile.exe` + `dist/Bibile.zip`
 3. `gh release create v3.2.0 dist/Bibile.zip --title "v3.2.0" --notes "Changelog"`
 
+## Connexion Drakkar (EDI SQL Express local)
+
+- **`bibile/edi_sync.py`** : connexion a `sv-drakkar\sqlexpress:49372` (SQL Express local)
+- Client cible : JF HILLEBRAND TRANSIT (alias `HILL21BEAU`)
+- Tables Drakkar : `[dbo].[ti]` (clients), `[dbo].[edi_atlas400]` (messages EDI)
+- Jointure : `edi_atlas400.Code_Indus = ti.N_tiers`
+- Champ `SourceCNX` : XML Hillebrand Transport Instructions (namespace `http://JFH.Interfaces2013.Schemas.Schemas.HillebrandTransportInstructionsMessage_2.0`)
+- Parse XML : extrait shipments avec expediteur, colis, palettes, poids, dates, destinations
+- Deduplication : si un meme `shipment_id` apparait dans plusieurs messages EDI (MAJ en journee), seul le plus recent est conserve
+- Connexion pyodbc (TrustServerCertificate=yes) avec fallback pymssql
+- Fix double-encodage UTF-8 : `text.encode('latin-1').decode('utf-8')` pour NTEXT pyodbc
+- **`bibile/edi_comparator.py`** : rapprochement EDI vs PDF par `num_enlevement`/`RefMessage`
+- Config stockee dans table `external_db_config` avec `nom='drakkar'`
+- Donnees fetched live (pas de cache local) — chaque requete interroge Drakkar directement
+- Routes API : `GET/POST /api/drakkar/config`, `POST /api/drakkar/test`, `GET /api/drakkar/edi`, `GET /api/drakkar/stats`, `GET /api/drakkar/compare`
+
 ## Connexion BDD externe (DBI SQL Server Azure)
 
 - **`bibile/external_sync.py`** : SyncManager avec pymssql
@@ -86,7 +106,8 @@ build.bat              # Script de build .exe + creation ZIP release
 - Table `tournee_enlevements` : liaison N-N entre tournees et enlevements (avec ordre)
 - Table `zones` : zones geographiques (nom, tournee_defaut, couleur)
 - Table `ville_zone_mapping` : mapping ville -> zone (+ coordonnees GPS)
-- Table `external_db_config` : configuration connexion BDD externe
+- Table `edi_messages` : messages EDI caches (id_ligne, source_cnx, date_sync)
+- Table `external_db_config` : configuration connexion BDD externe + Drakkar (nom='drakkar')
 - Table `chauffeurs_sync` : selection des chauffeurs a synchroniser
 - Table `donnees_transport` : donnees synchro (km, conso, duree par jour) — colonnes ajoutees par migration ALTER TABLE
 - Au premier lancement, dialogue tkinter propose d'importer l'ancien historique (fichiers .xlsx)

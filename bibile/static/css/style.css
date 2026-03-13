@@ -2137,3 +2137,51 @@ kbd {
         min-width: unset;
     }
 }
+
+/* ===== EDI Comparaison ===== */
+.edi-stats {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+.stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    text-align: center;
+    flex: 1;
+    min-width: 100px;
+}
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+.stat-match .stat-value { color: #3fb950; }
+.stat-warning .stat-value { color: #e3952d; }
+.stat-missing .stat-value { color: #f85149; }
+.stat-pdf .stat-value { color: #4493f8; }
+.stat-edi .stat-value { color: #a371f7; }
+
+.edi-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.edi-match .edi-badge, tr.edi-match { background: rgba(63, 185, 80, 0.1); }
+.edi-badge.edi-match { background: rgba(63, 185, 80, 0.2); color: #3fb950; }
+.edi-ecart .edi-badge, tr.edi-ecart { background: rgba(227, 149, 45, 0.1); }
+.edi-badge.edi-ecart { background: rgba(227, 149, 45, 0.2); color: #e3952d; }
+.edi-pdf-only .edi-badge, tr.edi-pdf-only { background: rgba(248, 81, 73, 0.1); }
+.edi-badge.edi-pdf-only { background: rgba(248, 81, 73, 0.2); color: #f85149; }
+.edi-edi-only .edi-badge, tr.edi-edi-only { background: rgba(163, 113, 247, 0.1); }
+.edi-badge.edi-edi-only { background: rgba(163, 113, 247, 0.2); color: #a371f7; }

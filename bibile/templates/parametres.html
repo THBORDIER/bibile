@@ -10,6 +10,7 @@
     <button class="settings-tab active" data-tab="zones">Zones & Villes</button>
     <button class="settings-tab" data-tab="chauffeurs">Chauffeurs & Vehicules</button>
     <button class="settings-tab" data-tab="connexion">Connexion externe</button>
+    <button class="settings-tab" data-tab="drakkar">Connexion Drakkar</button>
 </div>
 
 <!-- Tab: Zones & Villes -->
@@ -251,6 +252,47 @@
         <div id="syncHistory" class="sync-history">
             <p class="text-muted">Aucune synchronisation effectuee.</p>
         </div>
+    </div>
+</div>
+<!-- Tab: Connexion Drakkar (EDI) -->
+<div id="tabDrakkar" class="settings-panel hidden">
+    <div class="card">
+        <div class="card-header">
+            <h3>Base de donnees Drakkar (EDI)</h3>
+        </div>
+
+        <div class="settings-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Hote</label>
+                    <input type="text" id="inputDrakkarHost" class="form-input" placeholder="sv-drakkar\sqlexpress">
+                </div>
+                <div class="form-group">
+                    <label>Port</label>
+                    <input type="number" id="inputDrakkarPort" class="form-input" value="49372">
+                </div>
+                <div class="form-group">
+                    <label>Base de donnees</label>
+                    <input type="text" id="inputDrakkarName" class="form-input" placeholder="drakkar">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Utilisateur</label>
+                    <input type="text" id="inputDrakkarUser" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Mot de passe</label>
+                    <input type="password" id="inputDrakkarPass" class="form-input">
+                </div>
+                <div class="form-group form-actions-inline">
+                    <button id="btnTestDrakkar" class="btn btn-secondary">Tester la connexion</button>
+                    <button id="btnSaveDrakkar" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="drakkarResult" class="alert hidden"></div>
     </div>
 </div>
 {% endblock %}
