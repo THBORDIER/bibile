@@ -9,11 +9,17 @@ RÈGLES IMPORTANTES :
    - PART PALLET = 0
    - HALF PALLET = 1
    - EURO/VMF = nombre indiqué
+   - LOOSE LOADED = nombre indiqué
 
 2. Contrôle qualité avec "Au total:" :
-   - Le "Au total:" du fichier source ne compte QUE les palettes pleines (EURO/VMF)
+   - Le "Au total:" du fichier source ne compte QUE les palettes pleines (EURO/VMF/LOOSE LOADED)
    - Il ignore les HALF et PART dans leur comptage
-   - Donc le contrôle qualité ne vérifie que les EURO/VMF, pas les HALF/PART
+   - Donc le contrôle qualité ne vérifie que les EURO/VMF/LOOSE LOADED, pas les HALF/PART
+
+4. Nettoyage du texte PDF :
+   - Le texte copié du PDF contient des en-têtes/pieds de page répétés à chaque saut de page
+   - La fonction nettoyer_texte() les supprime avant le parsing
+   - Le premier en-tête est préservé (métadonnées du document)
 
 3. Mapping des livraisons :
    - Le système extrait AUTOMATIQUEMENT les noms des destinataires depuis les sections "Livraison X"
@@ -49,6 +55,56 @@ def log_to_file(message, log_file):
     timestamp = datetime.now().strftime("%H:%M:%S")
     with open(log_file, 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {message}\n")
+
+
+def nettoyer_texte(texte):
+    """
+    Supprime les en-têtes et pieds de page répétés dans le texte extrait du PDF Hillebrand.
+
+    Les blocs en-tête/pied de page suivent ce schéma :
+    - [optionnel] Code-barres : FRBG164812 / µFRBG164812JÄ
+    - Pied : "Hillebrand Gori France SAS - 11 Rue Louis et Gaston Chevrolet..."
+    - Pied : "T +33 380244300 - VAT number ... Page XX/YY"
+    - En-tête : "Date: DD/mois/YYYY HH:MM"
+    - En-tête : "A: Brevet SA Crissey - ..."
+    - En-tête : "Notre Réf: FRBGXXXXXX (Merci de reporter...)"
+    - En-tête : "De: Laurie Jolliot - ..."
+    - En-tête : "Instructions de transport"
+
+    Le premier en-tête du document (lignes 1-14) est préservé car il ne contient
+    pas la ligne de pied de page "Hillebrand Gori France SAS...Chevrolet...Beaune".
+    Cette ligne n'apparaît qu'aux sauts de page.
+    """
+    lignes = texte.split('\n')
+    lignes_nettoyees = []
+
+    i = 0
+    while i < len(lignes):
+        ligne = lignes[i].strip()
+
+        # Détecter le pied de page Hillebrand (signature unique, n'apparaît qu'aux sauts de page)
+        if 'Hillebrand Gori France SAS' in ligne and 'Chevrolet' in ligne and 'Beaune' in ligne:
+            # Vérifier que la ligne suivante est bien le numéro de page
+            if i + 1 < len(lignes) and 'VAT number' in lignes[i + 1] and 'Page' in lignes[i + 1]:
+                # Supprimer aussi les lignes de code-barres qui précèdent le pied de page
+                # (ex: FRBG164812, µFRBG164812JÄ)
+                while lignes_nettoyees and re.match(r'^µ?[A-Z]{3,5}\d{5,7}', lignes_nettoyees[-1].strip()):
+                    lignes_nettoyees.pop()
+
+                # Sauter le bloc pied + en-tête (jusqu'à "Instructions de transport")
+                j = i
+                while j < len(lignes) and j < i + 12:
+                    if lignes[j].strip() == 'Instructions de transport':
+                        j += 1  # sauter aussi cette ligne
+                        break
+                    j += 1
+                i = j
+                continue
+
+        lignes_nettoyees.append(lignes[i])
+        i += 1
+
+    return '\n'.join(lignes_nettoyees)
 
 
 def extraire_totaux_livraisons(texte):
@@ -142,11 +198,11 @@ def controler_totaux(lignes_tableau, totaux_livraisons, mapping_destinataires, l
             calcules[livraison] = {'palettes': 0, 'poids': 0, 'colis': 0}
 
         # Compter les palettes pour le contrôle qualité
-        # RÈGLE: Le "Au total:" du fichier source ne compte QUE les palettes pleines (EURO/VMF)
+        # RÈGLE: Le "Au total:" du fichier source ne compte QUE les palettes pleines (EURO/VMF/LOOSE LOADED)
         # Il ignore les HALF et PART dans leur total
-        # Donc pour le contrôle, on ne compte que si type = EURO ou VMF
+        # Donc pour le contrôle, on ne compte que si type = EURO, VMF ou LOOSE LOADED
         type_pal = ligne.get('TYPE DE PALETTES', '')
-        if type_pal in ['EURO', 'VMF']:
+        if type_pal in ['EURO', 'VMF', 'LOOSE LOADED']:
             try:
                 nb_pal = int(ligne.get('NOMBRE DE PALETTES', 0) or 0)
                 calcules[livraison]['palettes'] += nb_pal
@@ -318,6 +374,13 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
             type_palette = "VMF"
             nb_palettes = match.group(1)
 
+        # Pattern: "X Loose loaded" (avec ou sans "pallet")
+        elif re.match(r'^(\d+)\s+Loose\s+loaded', ligne, re.IGNORECASE):
+            match = re.match(r'^(\d+)\s+Loose\s+loaded', ligne, re.IGNORECASE)
+            match_palette = True
+            type_palette = "LOOSE LOADED"
+            nb_palettes = match.group(1)
+
         # Pattern: "X pallet" générique (par défaut EURO)
         elif re.match(r'^(\d+)\s+[Pp]allet', ligne, re.IGNORECASE):
             match = re.match(r'^(\d+)\s+[Pp]allet', ligne, re.IGNORECASE)
@@ -344,10 +407,15 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
             if not colis and infos['colis_total']:
                 colis = infos['colis_total']
 
-            # ÉTAPE 4b: Chercher NOTRE RÉF (mot-clé: "Notre Réf:" dans les 10 lignes suivantes)
+            # ÉTAPE 4b: Chercher NOTRE RÉF (mot-clé: "Notre Réf:" dans les 20 lignes suivantes)
+            # IMPORTANT: Ignorer les références globales des en-têtes de page
+            # qui contiennent "(Merci de reporter"
             notre_ref = ""
-            for k in range(j + 1, min(j + 10, index_fin)):
+            for k in range(j + 1, min(j + 20, index_fin)):
                 if 'Notre Réf:' in lignes[k] or 'Notre Ref:' in lignes[k]:
+                    # Ignorer la référence globale de l'en-tête de page
+                    if 'Merci de reporter' in lignes[k]:
+                        continue
                     match_ref = re.search(r'Notre Ré[fF]:\s*([A-Z0-9/+\-]+)', lignes[k])
                     if match_ref:
                         notre_ref = match_ref.group(1).split('+')[0].strip()
@@ -388,8 +456,12 @@ def parser_texte(texte, log_file):
     """Parse le texte et extrait les informations de manière structurée"""
     log_to_file(">> Début de l'analyse du texte", log_file)
 
+    # Nettoyer les en-têtes/pieds de page répétés du PDF
+    texte_brut_lignes = len(texte.split('\n'))
+    texte = nettoyer_texte(texte)
+
     lignes = texte.split('\n')
-    log_to_file(f"OK Texte analysé: {len(lignes)} lignes", log_file)
+    log_to_file(f"OK Texte analysé: {len(lignes)} lignes ({texte_brut_lignes} avant nettoyage)", log_file)
 
     # ÉTAPE 1: Extraire les totaux ET mapping des destinataires des sections Livraison
     totaux_livraisons, mapping_destinataires = extraire_totaux_livraisons(texte)
