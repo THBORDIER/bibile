@@ -1,0 +1,15 @@
+{
+    "tachographe": {
+        "type": "postgresql",
+        "host": "serveur-chronotachygraphe.local",
+        "port": 5432,
+        "database": "tachographe",
+        "user": "lecteur",
+        "password": "mot_de_passe",
+        "query": "SELECT driver_name, vehicle_plate, record_date, driving_time_minutes, distance_km, fuel_consumption_liters FROM tachograph_records WHERE record_date >= %s ORDER BY record_date"
+    },
+    "sync": {
+        "auto_enabled": true,
+        "heure_sync": "06:00"
+    }
+}

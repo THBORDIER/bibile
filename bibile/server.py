@@ -25,7 +25,7 @@ from flask import Flask, render_template, request, jsonify, send_file, send_from
 import os
 import re
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 import json
 from pathlib import Path
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -41,6 +41,21 @@ HISTORIQUE_DIR = BASE_DIR / 'historique'
 # Créer les dossiers s'ils n'existent pas
 LOGS_DIR.mkdir(exist_ok=True)
 HISTORIQUE_DIR.mkdir(exist_ok=True)
+
+# Base de données SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{BASE_DIR / "bibile.db"}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+from models import db, Chauffeur, Vehicule, TachographeRecord, RegleTournee, SyncStatus
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
+
+# Service de synchronisation tachygraphe
+from tachographe_sync import TachographeSync
+config_path = BASE_DIR / 'config.json'
+tachy_sync = TachographeSync(db, config_path if config_path.exists() else None)
 
 
 
@@ -549,6 +564,9 @@ def generer():
             log_to_file("ERREUR: Aucun enlèvement trouvé", chemin_log)
             return jsonify({'erreur': 'Aucun enlèvement trouvé dans le texte. Vérifiez que vous avez copié le bon document.'}), 400
 
+        # Appliquer les règles de tournées (si des règles existent)
+        lignes_tableau = appliquer_regles(lignes_tableau)
+
         # Générer l'Excel
         generer_excel(lignes_tableau, chemin_excel, chemin_log)
 
@@ -678,6 +696,256 @@ def voir_log(filename):
 
     except Exception as e:
         return str(e), 500
+
+
+# =====================================================================
+# ROUTES - Chauffeurs
+# =====================================================================
+
+@app.route('/chauffeurs')
+def page_chauffeurs():
+    return render_template('chauffeurs.html')
+
+
+@app.route('/api/chauffeurs', methods=['GET'])
+def api_chauffeurs_list():
+    chauffeurs = Chauffeur.query.order_by(Chauffeur.nom).all()
+    return jsonify({'chauffeurs': [c.to_dict() for c in chauffeurs]})
+
+
+@app.route('/api/chauffeurs', methods=['POST'])
+def api_chauffeurs_create():
+    data = request.get_json()
+    if not data.get('nom') or not data.get('prenom'):
+        return jsonify({'erreur': 'Nom et prénom obligatoires'}), 400
+
+    chauffeur = Chauffeur(
+        nom=data['nom'],
+        prenom=data['prenom'],
+        telephone=data.get('telephone'),
+        permis_numero=data.get('permis_numero'),
+        permis_expiration=date.fromisoformat(data['permis_expiration']) if data.get('permis_expiration') else None,
+        actif=data.get('actif', True),
+        notes=data.get('notes'),
+    )
+    db.session.add(chauffeur)
+    db.session.commit()
+    return jsonify(chauffeur.to_dict()), 201
+
+
+@app.route('/api/chauffeurs/<int:id>', methods=['PUT'])
+def api_chauffeurs_update(id):
+    chauffeur = Chauffeur.query.get_or_404(id)
+    data = request.get_json()
+
+    chauffeur.nom = data.get('nom', chauffeur.nom)
+    chauffeur.prenom = data.get('prenom', chauffeur.prenom)
+    chauffeur.telephone = data.get('telephone', chauffeur.telephone)
+    chauffeur.permis_numero = data.get('permis_numero', chauffeur.permis_numero)
+    if 'permis_expiration' in data:
+        chauffeur.permis_expiration = date.fromisoformat(data['permis_expiration']) if data['permis_expiration'] else None
+    chauffeur.actif = data.get('actif', chauffeur.actif)
+    chauffeur.notes = data.get('notes', chauffeur.notes)
+
+    db.session.commit()
+    return jsonify(chauffeur.to_dict())
+
+
+@app.route('/api/chauffeurs/<int:id>', methods=['DELETE'])
+def api_chauffeurs_delete(id):
+    chauffeur = Chauffeur.query.get_or_404(id)
+    chauffeur.actif = False
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# =====================================================================
+# ROUTES - Véhicules
+# =====================================================================
+
+@app.route('/vehicules')
+def page_vehicules():
+    return render_template('vehicules.html')
+
+
+@app.route('/api/vehicules', methods=['GET'])
+def api_vehicules_list():
+    vehicules = Vehicule.query.order_by(Vehicule.immatriculation).all()
+    return jsonify({'vehicules': [v.to_dict() for v in vehicules]})
+
+
+@app.route('/api/vehicules', methods=['POST'])
+def api_vehicules_create():
+    data = request.get_json()
+    if not data.get('immatriculation'):
+        return jsonify({'erreur': 'Immatriculation obligatoire'}), 400
+
+    existing = Vehicule.query.filter_by(immatriculation=data['immatriculation']).first()
+    if existing:
+        return jsonify({'erreur': 'Cette immatriculation existe déjà'}), 400
+
+    vehicule = Vehicule(
+        immatriculation=data['immatriculation'],
+        marque=data.get('marque'),
+        modele=data.get('modele'),
+        type_vehicule=data.get('type_vehicule'),
+        capacite_palettes=data.get('capacite_palettes'),
+        capacite_kg=data.get('capacite_kg'),
+        actif=data.get('actif', True),
+        notes=data.get('notes'),
+    )
+    db.session.add(vehicule)
+    db.session.commit()
+    return jsonify(vehicule.to_dict()), 201
+
+
+@app.route('/api/vehicules/<int:id>', methods=['PUT'])
+def api_vehicules_update(id):
+    vehicule = Vehicule.query.get_or_404(id)
+    data = request.get_json()
+
+    if 'immatriculation' in data and data['immatriculation'] != vehicule.immatriculation:
+        existing = Vehicule.query.filter_by(immatriculation=data['immatriculation']).first()
+        if existing:
+            return jsonify({'erreur': 'Cette immatriculation existe déjà'}), 400
+        vehicule.immatriculation = data['immatriculation']
+
+    vehicule.marque = data.get('marque', vehicule.marque)
+    vehicule.modele = data.get('modele', vehicule.modele)
+    vehicule.type_vehicule = data.get('type_vehicule', vehicule.type_vehicule)
+    vehicule.capacite_palettes = data.get('capacite_palettes', vehicule.capacite_palettes)
+    vehicule.capacite_kg = data.get('capacite_kg', vehicule.capacite_kg)
+    vehicule.actif = data.get('actif', vehicule.actif)
+    vehicule.notes = data.get('notes', vehicule.notes)
+
+    db.session.commit()
+    return jsonify(vehicule.to_dict())
+
+
+@app.route('/api/vehicules/<int:id>', methods=['DELETE'])
+def api_vehicules_delete(id):
+    vehicule = Vehicule.query.get_or_404(id)
+    vehicule.actif = False
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# =====================================================================
+# ROUTES - Règles de tournées
+# =====================================================================
+
+@app.route('/regles')
+def page_regles():
+    return render_template('regles.html')
+
+
+@app.route('/api/regles', methods=['GET'])
+def api_regles_list():
+    regles = RegleTournee.query.order_by(RegleTournee.priorite, RegleTournee.nom).all()
+    return jsonify({'regles': [r.to_dict() for r in regles]})
+
+
+@app.route('/api/regles', methods=['POST'])
+def api_regles_create():
+    data = request.get_json()
+    if not data.get('nom'):
+        return jsonify({'erreur': 'Nom de la règle obligatoire'}), 400
+
+    regle = RegleTournee(
+        nom=data['nom'],
+        livraison=data.get('livraison'),
+        ville_pattern=data.get('ville_pattern'),
+        chauffeur_id=data.get('chauffeur_id'),
+        vehicule_id=data.get('vehicule_id'),
+        jour_semaine=data.get('jour_semaine'),
+        actif=data.get('actif', True),
+        priorite=data.get('priorite', 0),
+    )
+    db.session.add(regle)
+    db.session.commit()
+    return jsonify(regle.to_dict()), 201
+
+
+@app.route('/api/regles/<int:id>', methods=['PUT'])
+def api_regles_update(id):
+    regle = RegleTournee.query.get_or_404(id)
+    data = request.get_json()
+
+    regle.nom = data.get('nom', regle.nom)
+    regle.livraison = data.get('livraison', regle.livraison)
+    regle.ville_pattern = data.get('ville_pattern', regle.ville_pattern)
+    regle.chauffeur_id = data.get('chauffeur_id', regle.chauffeur_id)
+    regle.vehicule_id = data.get('vehicule_id', regle.vehicule_id)
+    regle.jour_semaine = data.get('jour_semaine', regle.jour_semaine)
+    regle.actif = data.get('actif', regle.actif)
+    regle.priorite = data.get('priorite', regle.priorite)
+
+    db.session.commit()
+    return jsonify(regle.to_dict())
+
+
+@app.route('/api/regles/<int:id>', methods=['DELETE'])
+def api_regles_delete(id):
+    regle = RegleTournee.query.get_or_404(id)
+    db.session.delete(regle)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+def appliquer_regles(lignes_tableau):
+    """Applique les règles de tournées sur les lignes d'enlèvement extraites.
+    Ajoute les colonnes CHAUFFEUR SUGGÉRÉ et VÉHICULE SUGGÉRÉ."""
+    regles = RegleTournee.query.filter_by(actif=True).order_by(RegleTournee.priorite).all()
+    if not regles:
+        return lignes_tableau
+
+    jour_actuel = datetime.now().weekday()  # 0=lundi
+
+    for ligne in lignes_tableau:
+        livraison = ligne.get('LIVRAISON ASSOCIÉE', '')
+        ville = ligne.get('VILLE', '')
+
+        for regle in regles:
+            if regle.match(livraison, ville, jour_actuel):
+                if regle.chauffeur and 'CHAUFFEUR SUGGÉRÉ' not in ligne:
+                    ligne['CHAUFFEUR SUGGÉRÉ'] = f"{regle.chauffeur.prenom} {regle.chauffeur.nom}"
+                if regle.vehicule and 'VÉHICULE SUGGÉRÉ' not in ligne:
+                    ligne['VÉHICULE SUGGÉRÉ'] = regle.vehicule.immatriculation
+                break  # Première règle qui matche gagne
+
+    return lignes_tableau
+
+
+# =====================================================================
+# ROUTES - Chronotachygraphe
+# =====================================================================
+
+@app.route('/tachographe')
+def page_tachographe():
+    return render_template('tachographe.html')
+
+
+@app.route('/api/tachographe/stats', methods=['GET'])
+def api_tachographe_stats():
+    records = TachographeRecord.query.order_by(TachographeRecord.date.desc()).all()
+    return jsonify({'records': [r.to_dict() for r in records]})
+
+
+@app.route('/api/tachographe/sync', methods=['POST'])
+def api_tachographe_sync():
+    try:
+        nb, message = tachy_sync.sync()
+        return jsonify({'nb_records': nb, 'message': message})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tachographe/status', methods=['GET'])
+def api_tachographe_status():
+    status = SyncStatus.query.order_by(SyncStatus.id.desc()).first()
+    if status:
+        return jsonify(status.to_dict())
+    return jsonify({'derniere_sync': None, 'statut': None, 'message': 'Aucune synchronisation effectuée'})
 
 
 if __name__ == '__main__':

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chauffeurs - Bibile</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>📦 Bibile</h1>
+                <p class="tagline">Extracteur d'enlèvements Hillebrand</p>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">Accueil</a>
+                <a href="/chauffeurs" class="nav-link active">Chauffeurs</a>
+                <a href="/vehicules" class="nav-link">Véhicules</a>
+                <a href="/regles" class="nav-link">Règles</a>
+                <a href="/tachographe" class="nav-link">Tachygraphe</a>
+                <a href="/historique" class="nav-link">Historique</a>
+                <a href="/donnees" class="nav-link">Données</a>
+            </nav>
+        </header>
+
+        <main>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Gestion des chauffeurs</h2>
+                    <button id="addBtn" class="btn-primary" onclick="openModal()">+ Ajouter</button>
+                </div>
+
+                <div id="chauffeursList" class="entity-list">
+                    <div class="loading">Chargement...</div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Bibile v1.0 - Outil interne Hillebrand</p>
+        </footer>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Ajouter un chauffeur</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <form id="chauffeurForm" onsubmit="saveForm(event)">
+                <input type="hidden" id="editId" value="">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="nom">Nom *</label>
+                        <input type="text" id="nom" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="prenom">Prénom *</label>
+                        <input type="text" id="prenom" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="telephone">Téléphone</label>
+                        <input type="text" id="telephone" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="permis_numero">N° Permis</label>
+                        <input type="text" id="permis_numero" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="permis_expiration">Expiration permis</label>
+                        <input type="date" id="permis_expiration" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="actif">Statut</label>
+                        <select id="actif" class="form-input">
+                            <option value="true">Actif</option>
+                            <option value="false">Inactif</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-full">
+                        <label for="notes">Notes</label>
+                        <textarea id="notes" class="form-input" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Annuler</button>
+                    <button type="submit" class="btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/chauffeurs.js"></script>
+</body>
+</html>

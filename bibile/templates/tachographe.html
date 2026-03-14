@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chronotachygraphe - Bibile</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>📦 Bibile</h1>
+                <p class="tagline">Extracteur d'enlèvements Hillebrand</p>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">Accueil</a>
+                <a href="/chauffeurs" class="nav-link">Chauffeurs</a>
+                <a href="/vehicules" class="nav-link">Véhicules</a>
+                <a href="/regles" class="nav-link">Règles</a>
+                <a href="/tachographe" class="nav-link active">Tachygraphe</a>
+                <a href="/historique" class="nav-link">Historique</a>
+                <a href="/donnees" class="nav-link">Données</a>
+            </nav>
+        </header>
+
+        <main>
+            <!-- Sync Status -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>Chronotachygraphe</h2>
+                    <button id="syncBtn" class="btn-primary" onclick="lancerSync()">Synchroniser</button>
+                </div>
+                <div id="syncStatus" class="sync-status">
+                    <p>Dernière synchronisation : <span id="lastSync">--</span></p>
+                    <p>Statut : <span id="syncStatusText">--</span></p>
+                </div>
+            </div>
+
+            <!-- Filtres -->
+            <div class="card">
+                <h3>Filtres</h3>
+                <div class="filters-grid">
+                    <div class="filter-group">
+                        <label for="filterChauffeur">Chauffeur</label>
+                        <select id="filterChauffeur" class="filter-input">
+                            <option value="">Tous</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filterVehicule">Véhicule</label>
+                        <select id="filterVehicule" class="filter-input">
+                            <option value="">Tous</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filterDateDebut">Date début</label>
+                        <input type="date" id="filterDateDebut" class="filter-input">
+                    </div>
+                    <div class="filter-group">
+                        <label for="filterDateFin">Date fin</label>
+                        <input type="date" id="filterDateFin" class="filter-input">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistiques resume -->
+            <div id="statsSection" class="stats-section">
+                <div class="stat-card stat-brevet">
+                    <div class="stat-label">Temps conduite</div>
+                    <div class="stat-value" id="statTemps">0h</div>
+                </div>
+                <div class="stat-card stat-transit">
+                    <div class="stat-label">Distance</div>
+                    <div class="stat-value" id="statDistance">0 km</div>
+                </div>
+                <div class="stat-card stat-chevrolet">
+                    <div class="stat-label">Consommation</div>
+                    <div class="stat-value" id="statConso">0 L</div>
+                </div>
+            </div>
+
+            <!-- Tableau des donnees -->
+            <div class="card">
+                <div class="table-header">
+                    <h3>Données chronotachygraphe</h3>
+                    <div class="table-info">
+                        <span id="rowCount">0 enregistrements</span>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Chauffeur</th>
+                                <th>Véhicule</th>
+                                <th>Temps conduite</th>
+                                <th>Distance (km)</th>
+                                <th>Conso (L)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="emptyState" class="empty-state hidden">
+                    <div class="empty-icon">📊</div>
+                    <h3>Aucune donnée</h3>
+                    <p>Lancez une synchronisation pour importer les données du chronotachygraphe</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Bibile v1.0 - Outil interne Hillebrand</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/tachographe.js"></script>
+</body>
+</html>

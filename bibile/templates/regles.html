@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Règles de tournées - Bibile</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>📦 Bibile</h1>
+                <p class="tagline">Extracteur d'enlèvements Hillebrand</p>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">Accueil</a>
+                <a href="/chauffeurs" class="nav-link">Chauffeurs</a>
+                <a href="/vehicules" class="nav-link">Véhicules</a>
+                <a href="/regles" class="nav-link active">Règles</a>
+                <a href="/tachographe" class="nav-link">Tachygraphe</a>
+                <a href="/historique" class="nav-link">Historique</a>
+                <a href="/donnees" class="nav-link">Données</a>
+            </nav>
+        </header>
+
+        <main>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Règles d'affectation des tournées</h2>
+                    <button id="addBtn" class="btn-primary" onclick="openModal()">+ Ajouter une règle</button>
+                </div>
+                <p class="instruction">
+                    Définissez des règles pour pré-affecter automatiquement un chauffeur et/ou un véhicule
+                    lors de la génération des fichiers Excel. Les règles sont appliquées par ordre de priorité.
+                </p>
+
+                <div id="reglesList" class="entity-list">
+                    <div class="loading">Chargement...</div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Bibile v1.0 - Outil interne Hillebrand</p>
+        </footer>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Ajouter une règle</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <form id="regleForm" onsubmit="saveForm(event)">
+                <input type="hidden" id="editId" value="">
+                <div class="form-grid">
+                    <div class="form-group form-full">
+                        <label for="nom">Nom de la règle *</label>
+                        <input type="text" id="nom" required class="form-input" placeholder="Ex: BREVET lundi - Dupont">
+                    </div>
+                    <div class="form-group">
+                        <label for="livraison">Livraison</label>
+                        <select id="livraison" class="form-input">
+                            <option value="">Toutes</option>
+                            <option value="BREVET">BREVET</option>
+                            <option value="TRANSIT">TRANSIT</option>
+                            <option value="CHEVROLET">CHEVROLET</option>
+                            <option value="HILLEBRAND">HILLEBRAND</option>
+                            <option value="STORAGE">STORAGE</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="ville_pattern">Ville (contient)</label>
+                        <input type="text" id="ville_pattern" class="form-input" placeholder="Ex: LYON">
+                    </div>
+                    <div class="form-group">
+                        <label for="jour_semaine">Jour de la semaine</label>
+                        <select id="jour_semaine" class="form-input">
+                            <option value="">Tous les jours</option>
+                            <option value="0">Lundi</option>
+                            <option value="1">Mardi</option>
+                            <option value="2">Mercredi</option>
+                            <option value="3">Jeudi</option>
+                            <option value="4">Vendredi</option>
+                            <option value="5">Samedi</option>
+                            <option value="6">Dimanche</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="chauffeur_id">Chauffeur</label>
+                        <select id="chauffeur_id" class="form-input">
+                            <option value="">-- Aucun --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="vehicule_id">Véhicule</label>
+                        <select id="vehicule_id" class="form-input">
+                            <option value="">-- Aucun --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="priorite">Priorité (0 = haute)</label>
+                        <input type="number" id="priorite" class="form-input" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="actif">Statut</label>
+                        <select id="actif" class="form-input">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Annuler</button>
+                    <button type="submit" class="btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/regles.js"></script>
+</body>
+</html>
