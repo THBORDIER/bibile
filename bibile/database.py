@@ -128,6 +128,18 @@ def init_db(db_path):
         CREATE INDEX IF NOT EXISTS idx_te_tournee ON tournee_enlevements(tournee_id);
         CREATE INDEX IF NOT EXISTS idx_te_enlevement ON tournee_enlevements(enlevement_id);
 
+        -- Modeles de tournees (permanents)
+        CREATE TABLE IF NOT EXISTS tournee_modeles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            chauffeur_id INTEGER REFERENCES chauffeurs(id),
+            vehicule_id INTEGER REFERENCES vehicules(id),
+            ordre_tri INTEGER DEFAULT 0,
+            actif INTEGER DEFAULT 1,
+            couleur TEXT DEFAULT '#4493f8',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Zones geographiques
         CREATE TABLE IF NOT EXISTS zones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,6 +257,14 @@ def init_db(db_path):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_dt_vehicule ON donnees_transport(vehicule_id)")
     except Exception:
         pass
+    # Migration: ajouter modele_id sur tournees
+    try:
+        cursor.execute("SELECT modele_id FROM tournees LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE tournees ADD COLUMN modele_id INTEGER REFERENCES tournee_modeles(id)")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 

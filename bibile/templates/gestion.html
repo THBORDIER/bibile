@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}Gestion - Bibile{% endblock %}
+{% block page_title %}Gestion{% endblock %}
+{% block page_subtitle %}Chauffeurs, vehicules, zones et villes{% endblock %}
+
+{% block content %}
+<!-- Onglets -->
+<div class="settings-tabs">
+    <button class="settings-tab active" data-tab="zones">Zones & Villes</button>
+    <button class="settings-tab" data-tab="chauffeurs">Chauffeurs & Vehicules</button>
+    <button class="settings-tab" data-tab="modeles">Tournees</button>
+</div>
+
+<!-- Tab: Zones & Villes -->
+<div id="tabZones" class="settings-panel active">
+    <!-- Zones -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Zones geographiques</h3>
+            <button id="btnAddZone" class="btn btn-primary btn-sm">+ Ajouter une zone</button>
+        </div>
+        <div id="zonesList" class="zones-list"></div>
+    </div>
+
+    <!-- Mapping villes -->
+    <div class="card" style="margin-top: 16px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3>Mapping villes</h3>
+            <button id="btnGeocodeAll" class="btn btn-sm btn-secondary">Geocoder les villes</button>
+        </div>
+
+        <!-- Alerte villes inconnues -->
+        <div id="alertUnknownCities" class="alert alert-warning hidden">
+            <strong>Villes non configurees :</strong>
+            <span id="unknownCitiesCount"></span> ville(s) dans vos enlevements ne sont pas encore assignees a une zone.
+            <button id="btnShowUnknown" class="btn btn-sm btn-warning">Voir et configurer</button>
+        </div>
+
+        <table class="data-table" id="mappingTable">
+            <thead>
+                <tr>
+                    <th>Ville</th>
+                    <th>Zone</th>
+                    <th>Tournee par defaut</th>
+                    <th>Latitude</th>
+                    <th>Longitude</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="mappingBody"></tbody>
+        </table>
+    </div>
+
+    <!-- Modal ajout zone -->
+    <div id="modalAddZone" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="zoneModalTitle">Nouvelle zone</h3>
+            <input type="hidden" id="zoneEditId">
+            <div class="form-group">
+                <label>Nom de la zone</label>
+                <input type="text" id="inputZoneName" class="form-input" placeholder="Ex: Bourgogne Nord">
+            </div>
+            <div class="form-group">
+                <label>Tournee par defaut</label>
+                <input type="text" id="inputZoneTournee" class="form-input" placeholder="Ex: Tournee Dijon" list="datalistTourneeNoms">
+                <small class="form-hint">Ce nom sera utilise pour creer automatiquement une tournee lors de la distribution.</small>
+                <datalist id="datalistTourneeNoms"></datalist>
+            </div>
+            <div class="form-group">
+                <label>Couleur</label>
+                <input type="color" id="inputZoneColor" class="form-input-color" value="#4493f8">
+            </div>
+            <div class="modal-actions">
+                <button id="btnSaveZone" class="btn btn-primary">Enregistrer</button>
+                <button id="btnCancelZone" class="btn btn-secondary">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal villes inconnues -->
+    <div id="modalUnknownMapping" class="modal hidden">
+        <div class="modal-content modal-large">
+            <h3>Villes non configurees</h3>
+            <p>Assignez chaque ville a une zone :</p>
+            <div id="unknownMappingList" class="unknown-mapping-list"></div>
+            <div class="modal-actions">
+                <button id="btnSaveUnknownMapping" class="btn btn-primary">Enregistrer</button>
+                <button id="btnCancelUnknownMapping" class="btn btn-secondary">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tab: Chauffeurs & Vehicules -->
+<div id="tabChauffeurs" class="settings-panel hidden">
+    <div class="settings-columns">
+        <!-- Chauffeurs -->
+        <div class="card">
+            <div class="card-header">
+                <h3>Chauffeurs</h3>
+                <button id="btnAddChauffeur" class="btn btn-primary btn-sm">+ Ajouter</button>
+            </div>
+            <input type="text" id="searchChauffeurs" class="form-input search-filter" placeholder="Rechercher un chauffeur...">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Nom</th><th>Prenom</th><th>Telephone</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="chauffeursList"></tbody>
+            </table>
+        </div>
+
+        <!-- Vehicules -->
+        <div class="card">
+            <div class="card-header">
+                <h3>Vehicules</h3>
+                <button id="btnAddVehicule" class="btn btn-primary btn-sm">+ Ajouter</button>
+            </div>
+            <input type="text" id="searchVehicules" class="form-input search-filter" placeholder="Rechercher un vehicule...">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Immatriculation</th><th>Type</th><th>Capacite (pal.)</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="vehiculesList"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal chauffeur -->
+    <div id="modalChauffeur" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="chauffeurModalTitle">Nouveau chauffeur</h3>
+            <input type="hidden" id="chauffeurEditId">
+            <div class="form-group">
+                <label>Nom *</label>
+                <input type="text" id="inputChauffeurNom" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label>Prenom</label>
+                <input type="text" id="inputChauffeurPrenom" class="form-input">
+            </div>
+            <div class="form-group">
+                <label>Telephone</label>
+                <input type="text" id="inputChauffeurTel" class="form-input">
+            </div>
+            <div class="modal-actions">
+                <button id="btnSaveChauffeur" class="btn btn-primary">Enregistrer</button>
+                <button id="btnCancelChauffeur" class="btn btn-secondary">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal vehicule -->
+    <div id="modalVehicule" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="vehiculeModalTitle">Nouveau vehicule</h3>
+            <input type="hidden" id="vehiculeEditId">
+            <div class="form-group">
+                <label>Immatriculation *</label>
+                <input type="text" id="inputVehiculeImmat" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <input type="text" id="inputVehiculeType" class="form-input" placeholder="Ex: Camion, Utilitaire">
+            </div>
+            <div class="form-group">
+                <label>Capacite (palettes)</label>
+                <input type="number" id="inputVehiculeCap" class="form-input" value="0">
+            </div>
+            <div class="modal-actions">
+                <button id="btnSaveVehicule" class="btn btn-primary">Enregistrer</button>
+                <button id="btnCancelVehicule" class="btn btn-secondary">Annuler</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tab: Modeles de tournees -->
+<div id="tabModeles" class="settings-panel hidden">
+    <div class="card">
+        <div class="card-header">
+            <h3>Modeles de tournees</h3>
+            <button id="btnAddModele" class="btn btn-primary btn-sm">+ Ajouter une tournee</button>
+        </div>
+        <p class="form-hint" style="margin: 8px 16px;">Les modeles definissent les tournees permanentes. Chaque jour, elles sont automatiquement creees avec le chauffeur et vehicule par defaut.</p>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Couleur</th>
+                    <th>Nom</th>
+                    <th>Chauffeur par defaut</th>
+                    <th>Vehicule par defaut</th>
+                    <th>Ordre</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="modelesList"></tbody>
+        </table>
+    </div>
+
+    <!-- Modal modele -->
+    <div id="modalModele" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="modeleModalTitle">Nouvelle tournee</h3>
+            <input type="hidden" id="modeleEditId">
+            <div class="form-group">
+                <label>Nom de la tournee *</label>
+                <input type="text" id="inputModeleNom" class="form-input" placeholder="Ex: Tournee Nord">
+            </div>
+            <div class="form-group">
+                <label>Chauffeur par defaut</label>
+                <select id="selectModeleChauffeur" class="form-select">
+                    <option value="">-- Aucun --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Vehicule par defaut</label>
+                <select id="selectModeleVehicule" class="form-select">
+                    <option value="">-- Aucun --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Couleur</label>
+                <input type="color" id="inputModeleCouleur" class="form-input-color" value="#4493f8">
+            </div>
+            <div class="form-group">
+                <label>Ordre d'affichage</label>
+                <input type="number" id="inputModeleOrdre" class="form-input" value="0">
+            </div>
+            <div class="modal-actions">
+                <button id="btnSaveModele" class="btn btn-primary">Enregistrer</button>
+                <button id="btnCancelModele" class="btn btn-secondary">Annuler</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/gestion.js"></script>
+{% endblock %}

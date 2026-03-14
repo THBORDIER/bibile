@@ -76,6 +76,7 @@ try:
         list_chauffeurs_sync, save_chauffeurs_sync_selection,
         list_vehicules_sync, save_vehicules_sync_selection,
         get_donnees_transport, get_extractions_for_date,
+        list_modeles, save_modele, delete_modele, instancier_tournees,
     )
     from bibile.external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
     from bibile.database_tournees import get_drakkar_config, save_drakkar_config
@@ -94,6 +95,7 @@ except ImportError:
         list_chauffeurs_sync, save_chauffeurs_sync_selection,
         list_vehicules_sync, save_vehicules_sync_selection,
         get_donnees_transport, get_extractions_for_date,
+        list_modeles, save_modele, delete_modele, instancier_tournees,
     )
     from external_sync import SyncManager, test_connection, fetch_external_vehicles, fetch_vehicle_positions
     from database_tournees import get_drakkar_config, save_drakkar_config
@@ -1021,6 +1023,10 @@ def page_tournees():
     return render_template('tournees.html', active_page='tournees')
 
 
+@app.route('/gestion')
+def page_gestion():
+    return render_template('gestion.html', active_page='gestion')
+
 @app.route('/parametres')
 def page_parametres():
     return render_template('parametres.html', active_page='parametres')
@@ -1032,9 +1038,54 @@ def api_list_tournees():
         date = request.args.get('date')
         if not date:
             return jsonify({'erreur': 'Parametre date requis'}), 400
+        # Instancier les modeles de tournees pour cette date
+        instancier_tournees(DB_PATH, date)
         return jsonify({'tournees': list_tournees(DB_PATH, date)})
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
+
+
+# ===== MODELES DE TOURNEES =====
+
+@app.route('/api/tournee-modeles')
+def api_list_modeles():
+    try:
+        actifs = request.args.get('actifs', '1') == '1'
+        return jsonify({'modeles': list_modeles(DB_PATH, actifs_seulement=actifs)})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournee-modeles', methods=['POST'])
+def api_save_modele():
+    try:
+        data = request.get_json()
+        modele_id = save_modele(DB_PATH, data)
+        return jsonify({'id': modele_id})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournee-modeles/<int:mid>', methods=['DELETE'])
+def api_delete_modele(mid):
+    try:
+        delete_modele(DB_PATH, mid)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/tournees/noms')
+def api_tournee_noms():
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT DISTINCT nom FROM tournees ORDER BY nom").fetchall()
+        conn.close()
+        return jsonify({'noms': [r['nom'] for r in rows]})
+    except Exception as e:
+        return jsonify({'noms': []})
 
 
 @app.route('/api/tournees', methods=['POST'])

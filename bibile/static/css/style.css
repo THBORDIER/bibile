@@ -2118,6 +2118,13 @@ kbd {
     color: var(--text-muted);
 }
 
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 .text-center {
     text-align: center;
 }

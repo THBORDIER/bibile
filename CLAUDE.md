@@ -21,7 +21,8 @@ bibile/
     donnees.html       # Visualisation des donnees
     tournees.html      # Kanban + carte des tournees + geolocalisation vehicules
     edi.html            # Page comparaison EDI vs PDF
-    parametres.html    # Parametres (zones, chauffeurs, vehicules, connexion externe, Drakkar)
+    gestion.html       # Gestion utilisateur (zones, chauffeurs, vehicules, mapping villes)
+    parametres.html    # Parametres systeme (connexion externe DBI, connexion Drakkar EDI)
     statistiques.html  # Page statistiques
     historique.html    # Historique des fichiers
     aide.html          # Aide / documentation
@@ -35,6 +36,7 @@ bibile/
     js/edi.js          # JS page EDI (comparaison, tri colonnes)
     js/tournees.js     # JS Kanban (SortableJS)
     js/carte.js        # JS carte (Leaflet) + couche vehicules GPS
+    js/gestion.js      # JS gestion (zones, chauffeurs, vehicules, mapping, autocomplete tournees)
     js/parametres.js   # JS parametres (config BDD externe + Drakkar)
     js/sortable.min.js # SortableJS (local)
     js/leaflet.min.js  # Leaflet JS (local)
@@ -102,7 +104,8 @@ build.bat              # Script de build .exe + creation ZIP release
 - Table `enlevements` : donnees des enlevements (liees a une extraction par FK)
 - Table `chauffeurs` : chauffeurs locaux + synchro externe (externe_id)
 - Table `vehicules` : vehicules (immatriculation, type, capacite)
-- Table `tournees` : tournees planifiees (nom, date, chauffeur, vehicule, statut)
+- Table `tournee_modeles` : modeles de tournees permanentes (nom, chauffeur_id, vehicule_id, ordre_tri, actif, couleur)
+- Table `tournees` : tournees instanciees par jour (nom, date, chauffeur, vehicule, statut, modele_id FK)
 - Table `tournee_enlevements` : liaison N-N entre tournees et enlevements (avec ordre)
 - Table `zones` : zones geographiques (nom, tournee_defaut, couleur)
 - Table `ville_zone_mapping` : mapping ville -> zone (+ coordonnees GPS)
@@ -123,13 +126,44 @@ build.bat              # Script de build .exe + creation ZIP release
 - `generer_excel(lignes, nom, log_file)` - Generation Excel avec openpyxl
 - `init_sync_manager()` - Demarre le SyncManager pour la synchro BDD externe
 - `inject_version()` - Context processor Jinja injectant `version` dans tous les templates
+- `page_gestion()` - Route `/gestion` (page gestion utilisateur)
+- `api_tournee_noms()` - Route `GET /api/tournees/noms` (noms distincts pour autocomplete)
 
 ## Fonctions cles (database_tournees.py)
 
 - `list_tournees(db_path, date)` - Liste tournees + enlevements pour une date
-- `auto_distribuer(db_path, date, extraction_id)` - Repartition auto par ville/zone
+- `auto_distribuer(db_path, date, extraction_id)` - Repartition auto par ville/zone (appelle instancier_tournees)
 - `get_unassigned_enlevements(db_path, ...)` - Enlevements non assignes a une tournee
 - `get_villes_inconnues(db_path)` - Villes sans mapping zone
+- `list_modeles(db_path)` - Liste modeles de tournees actifs
+- `save_modele(db_path, data)` - Creer/modifier un modele
+- `delete_modele(db_path, modele_id)` - Soft delete (actif=0)
+- `instancier_tournees(db_path, date)` - Cree les tournees du jour depuis les modeles actifs
+
+## Pages Gestion vs Parametres
+
+L'interface separe les donnees operationnelles de la configuration systeme :
+
+- **Gestion** (`/gestion`, `gestion.html`, `gestion.js`) : donnees utilisateur modifiees regulierement
+  - Onglet "Zones & Villes" : zones geographiques, mapping ville→zone, geocodage, tournee par defaut
+  - Onglet "Chauffeurs & Vehicules" : CRUD chauffeurs et vehicules locaux
+  - Onglet "Tournees" : modeles de tournees permanentes (nom, chauffeur/vehicule par defaut, couleur)
+  - Autocomplete `tournee_defaut` via `GET /api/tournees/noms` (datalist HTML)
+
+- **Parametres** (`/parametres`, `parametres.html`, `parametres.js`) : configuration systeme rarement modifiee
+  - Onglet "Connexion externe" : config BDD Azure SQL (DBI), synchro vehicules, intervalle
+  - Onglet "Connexion Drakkar" : config SQL Express local (EDI)
+
+Le champ `tournee_defaut` existe a deux niveaux : sur la zone (defaut) et sur le mapping ville (surcharge). Lors de l'auto-distribution, la tournee de la ville prime sur celle de la zone.
+
+## Modeles de tournees (tournees permanentes)
+
+- Table `tournee_modeles` : tournees permanentes avec chauffeur/vehicule par defaut
+- Soft delete via `actif=0` (les modeles ne sont jamais supprimes physiquement)
+- **Instanciation automatique** : au chargement de la page tournees (`GET /api/tournees?date=`), les modeles actifs sont instancies en tournees du jour si pas deja presentes. Meme chose avant auto-distribution.
+- La table `tournees` a une colonne `modele_id` (FK) pour tracer l'origine d'une tournee instanciee
+- Les tournees passees sont conservees en historique (navigables via le date picker)
+- Routes API : `GET /api/tournee-modeles`, `POST /api/tournee-modeles`, `DELETE /api/tournee-modeles/<id>`
 
 ## Types de palettes
 

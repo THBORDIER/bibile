@@ -181,6 +181,87 @@ def delete_tournee(db_path, tournee_id):
     conn.close()
 
 
+# ===== MODELES DE TOURNEES =====
+
+def list_modeles(db_path, actifs_seulement=True):
+    """Liste les modeles de tournees avec chauffeur/vehicule joints."""
+    conn = get_db(db_path)
+    where = "WHERE m.actif = 1" if actifs_seulement else ""
+    rows = conn.execute(f"""
+        SELECT m.*, c.nom as chauffeur_nom, c.prenom as chauffeur_prenom,
+               v.immatriculation as vehicule_immat
+        FROM tournee_modeles m
+        LEFT JOIN chauffeurs c ON c.id = m.chauffeur_id
+        LEFT JOIN vehicules v ON v.id = m.vehicule_id
+        {where}
+        ORDER BY m.ordre_tri, m.id
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_modele(db_path, data):
+    """Creer ou modifier un modele de tournee."""
+    conn = get_db(db_path)
+    if data.get('id'):
+        fields = []
+        values = []
+        for key in ['nom', 'chauffeur_id', 'vehicule_id', 'ordre_tri', 'actif', 'couleur']:
+            if key in data:
+                fields.append(f"{key} = ?")
+                values.append(data[key])
+        if fields:
+            values.append(data['id'])
+            conn.execute(f"UPDATE tournee_modeles SET {', '.join(fields)} WHERE id = ?", values)
+        modele_id = data['id']
+    else:
+        cursor = conn.execute("""
+            INSERT INTO tournee_modeles (nom, chauffeur_id, vehicule_id, ordre_tri, couleur)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data['nom'], data.get('chauffeur_id'), data.get('vehicule_id'),
+              data.get('ordre_tri', 0), data.get('couleur', '#4493f8')))
+        modele_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return modele_id
+
+
+def delete_modele(db_path, modele_id):
+    """Soft delete : desactive le modele."""
+    conn = get_db(db_path)
+    conn.execute("UPDATE tournee_modeles SET actif = 0 WHERE id = ?", (modele_id,))
+    conn.commit()
+    conn.close()
+
+
+def instancier_tournees(db_path, date_tournee):
+    """
+    Pour chaque modele actif, cree une tournee du jour si elle n'existe pas deja.
+    Retourne le nombre de tournees creees.
+    """
+    conn = get_db(db_path)
+    modeles = conn.execute(
+        "SELECT * FROM tournee_modeles WHERE actif = 1 ORDER BY ordre_tri, id"
+    ).fetchall()
+
+    created = 0
+    for m in modeles:
+        existing = conn.execute(
+            "SELECT id FROM tournees WHERE modele_id = ? AND date_tournee = ?",
+            (m['id'], date_tournee)
+        ).fetchone()
+        if not existing:
+            conn.execute("""
+                INSERT INTO tournees (nom, date_tournee, chauffeur_id, vehicule_id, modele_id, ordre_tri)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (m['nom'], date_tournee, m['chauffeur_id'], m['vehicule_id'], m['id'], m['ordre_tri']))
+            created += 1
+
+    conn.commit()
+    conn.close()
+    return created
+
+
 # ===== ASSIGNATION ENLEVEMENTS <-> TOURNEES =====
 
 def assign_enlevements(db_path, tournee_id, enlevement_ids):
@@ -371,8 +452,12 @@ def auto_distribuer(db_path, date_tournee, extraction_id=None):
     """
     Répartit automatiquement les enlèvements non assignés en tournées
     selon le mapping ville->zone->tournée.
+    Instancie d'abord les modeles de tournees pour la date.
     Retourne {assigned: N, unknown_cities: [...]}
     """
+    # Instancier les modeles avant de distribuer
+    instancier_tournees(db_path, date_tournee)
+
     conn = get_db(db_path)
 
     # Charger le mapping ville -> tournée
