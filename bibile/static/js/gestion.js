@@ -517,8 +517,8 @@ function showModeleModal(modeleId) {
 async function saveModele() {
     const data = {
         nom: document.getElementById('inputModeleNom').value.trim(),
-        chauffeur_id: document.getElementById('selectModeleChauffeur').value || null,
-        vehicule_id: document.getElementById('selectModeleVehicule').value || null,
+        chauffeur_id: document.getElementById('selectModeleChauffeur').value ? parseInt(document.getElementById('selectModeleChauffeur').value) : null,
+        vehicule_id: document.getElementById('selectModeleVehicule').value ? parseInt(document.getElementById('selectModeleVehicule').value) : null,
         couleur: document.getElementById('inputModeleCouleur').value,
         ordre_tri: parseInt(document.getElementById('inputModeleOrdre').value) || 0,
     };
@@ -559,7 +559,7 @@ async function loadTourneeNoms() {
         const data = await resp.json();
         const noms = data.noms || [];
         const datalist = document.getElementById('datalistTourneeNoms');
-        datalist.innerHTML = noms.map(n => `<option value="${escapeAttr(n)}">`).join('');
+        datalist.innerHTML = noms.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join('');
     } catch (e) {
         console.error('Erreur chargement noms tournees:', e);
     }
@@ -592,7 +592,14 @@ function showModal(id) {
 }
 
 function hideModal(id) {
-    document.getElementById(id).classList.add('hidden');
+    const modal = document.getElementById(id);
+    modal.classList.add('hidden');
+    modal.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(el => {
+        if (el.type === 'color') el.value = '#4493f8';
+        else if (el.type === 'number') el.value = '0';
+        else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else el.value = '';
+    });
 }
 
 function escapeHtml(str) {

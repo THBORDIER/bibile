@@ -1077,15 +1077,18 @@ def api_delete_modele(mid):
 
 @app.route('/api/tournees/noms')
 def api_tournee_noms():
+    conn = None
     try:
         import sqlite3
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT DISTINCT nom FROM tournees ORDER BY nom").fetchall()
-        conn.close()
         return jsonify({'noms': [r['nom'] for r in rows]})
     except Exception as e:
         return jsonify({'noms': []})
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.route('/api/tournees', methods=['POST'])
@@ -1163,7 +1166,10 @@ def api_unassigned():
 def api_auto_distribuer():
     try:
         data = request.get_json()
-        result = auto_distribuer(DB_PATH, data['date_tournee'], data.get('extraction_id'))
+        date_tournee = data.get('date_tournee')
+        if not date_tournee:
+            return jsonify({'erreur': 'Parametre date_tournee requis'}), 400
+        result = auto_distribuer(DB_PATH, date_tournee, data.get('extraction_id'))
         return jsonify(result)
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500

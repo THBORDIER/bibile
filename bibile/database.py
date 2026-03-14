@@ -265,6 +265,14 @@ def init_db(db_path):
             cursor.execute("ALTER TABLE tournees ADD COLUMN modele_id INTEGER REFERENCES tournee_modeles(id)")
         except Exception:
             pass
+    # Migration: ajouter couleur sur tournees
+    try:
+        cursor.execute("SELECT couleur FROM tournees LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE tournees ADD COLUMN couleur TEXT")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 

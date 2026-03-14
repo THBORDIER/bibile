@@ -130,7 +130,7 @@ function updateMap(tournees, unassigned) {
 
     // Afficher chaque tournée
     tournees.forEach((t, idx) => {
-        const color = TOUR_COLORS[idx % TOUR_COLORS.length];
+        const color = t.couleur || TOUR_COLORS[idx % TOUR_COLORS.length];
         const points = [];
 
         (t.enlevements || []).forEach(e => {

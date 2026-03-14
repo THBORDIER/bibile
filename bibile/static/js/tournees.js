@@ -197,6 +197,7 @@ function renderKanban() {
         col.innerHTML = `
             <div class="kanban-column-header">
                 <div class="kanban-header-top">
+                    ${t.couleur ? `<span class="zone-color-dot" style="background:${t.couleur}"></span>` : ''}
                     <h3 class="kanban-title-click" data-tournee-id="${t.id}">${escapeHtml(t.nom)}</h3>
                     <span class="kanban-count">${nbEnl}</span>
                 </div>

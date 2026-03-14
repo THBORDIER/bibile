@@ -252,9 +252,9 @@ def instancier_tournees(db_path, date_tournee):
         ).fetchone()
         if not existing:
             conn.execute("""
-                INSERT INTO tournees (nom, date_tournee, chauffeur_id, vehicule_id, modele_id, ordre_tri)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (m['nom'], date_tournee, m['chauffeur_id'], m['vehicule_id'], m['id'], m['ordre_tri']))
+                INSERT INTO tournees (nom, date_tournee, chauffeur_id, vehicule_id, modele_id, ordre_tri, couleur)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (m['nom'], date_tournee, m['chauffeur_id'], m['vehicule_id'], m['id'], m['ordre_tri'], m['couleur']))
             created += 1
 
     conn.commit()
