@@ -58,18 +58,18 @@ build.bat              # Script de build .exe + creation ZIP release
 ## Mise a jour automatique (GitHub Releases)
 
 - **`bibile/version.py`** : source unique de verite pour la version (`__version__`)
-- **`bibile/updater.py`** : verifie `https://api.github.com/repos/THBRDIER/bibile/releases/latest`
+- **`bibile/updater.py`** : verifie `https://api.github.com/repos/THBORDIER/bibile/releases/latest`
 - Au lancement, thread background compare le tag GitHub avec `__version__`
 - Si une version plus recente existe : banniere bleue dans `base.html` sur toutes les pages
 - Clic "Installer" : telecharge le ZIP, lance `update.bat` (attend fermeture PID, Expand-Archive, relance exe)
-- Routes API : `GET /api/update/check`, `POST /api/update/apply`
+- Routes API : `GET /api/update/check`, `POST /api/update/apply`, `GET /api/update/debug`
 - Le apply refuse de s'executer en mode dev (`sys._MEIPASS` absent)
 
 ### Workflow de release
 
 1. Modifier `bibile/version.py` → nouvelle version
 2. `build.bat` → produit `dist/Bibile/Bibile.exe` + `dist/Bibile.zip`
-3. `gh release create v3.2.0 dist/Bibile.zip --title "v3.2.0" --notes "Changelog"`
+3. `gh release create v3.5.1 dist/Bibile.zip --title "v3.5.1" --notes "Changelog"`
 
 ## Connexion Drakkar (EDI SQL Express local)
 
@@ -105,7 +105,7 @@ build.bat              # Script de build .exe + creation ZIP release
 - Table `chauffeurs` : chauffeurs locaux + synchro externe (externe_id)
 - Table `vehicules` : vehicules (immatriculation, type, capacite)
 - Table `tournee_modeles` : modeles de tournees permanentes (nom, chauffeur_id, vehicule_id, ordre_tri, actif, couleur)
-- Table `tournees` : tournees instanciees par jour (nom, date, chauffeur, vehicule, statut, modele_id FK)
+- Table `tournees` : tournees instanciees par jour (nom, date, chauffeur, vehicule, statut, modele_id FK, couleur)
 - Table `tournee_enlevements` : liaison N-N entre tournees et enlevements (avec ordre)
 - Table `zones` : zones geographiques (nom, tournee_defaut, couleur)
 - Table `ville_zone_mapping` : mapping ville -> zone (+ coordonnees GPS)
@@ -194,7 +194,7 @@ build.bat
 # ou: pyinstaller bibile.spec --clean
 
 # Creer une release GitHub
-gh release create v3.2.0 dist/Bibile.zip --title "v3.2.0" --notes "Changelog"
+gh release create v3.5.1 dist/Bibile.zip --title "v3.5.1" --notes "Changelog"
 ```
 
 ## Donnees de test
