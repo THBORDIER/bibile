@@ -23,7 +23,7 @@ bibile/
     edi.html            # Page comparaison EDI vs PDF
     gestion.html       # Gestion utilisateur (zones, chauffeurs, vehicules, mapping villes)
     parametres.html    # Parametres systeme (connexion externe DBI, connexion Drakkar EDI)
-    statistiques.html  # Page statistiques
+    statistiques.html  # Page statistiques (filtres periode/livraison/zone, exports PDF/Excel)
     historique.html    # Historique des fichiers
     aide.html          # Aide / documentation
   static/
@@ -32,7 +32,7 @@ bibile/
     js/app.js          # JS page accueil
     js/donnees.js      # JS page donnees
     js/historique.js   # JS page historique
-    js/statistiques.js # JS page statistiques
+    js/statistiques.js # JS page statistiques (Chart.js, filtres, exports PDF/Excel)
     js/edi.js          # JS page EDI (comparaison, tri colonnes)
     js/tournees.js     # JS Kanban (SortableJS)
     js/carte.js        # JS carte (Leaflet) + couche vehicules GPS
@@ -69,7 +69,7 @@ build.bat              # Script de build .exe + creation ZIP release
 
 1. Modifier `bibile/version.py` → nouvelle version
 2. `build.bat` → produit `dist/Bibile/Bibile.exe` + `dist/Bibile.zip`
-3. `gh release create v3.5.1 dist/Bibile.zip --title "v3.5.1" --notes "Changelog"`
+3. `gh release create v3.7.0 dist/Bibile.zip --title "v3.7.0" --notes "Changelog"`
 
 ## Connexion Drakkar (EDI SQL Express local)
 
@@ -85,7 +85,7 @@ build.bat              # Script de build .exe + creation ZIP release
 - **`bibile/edi_comparator.py`** : rapprochement EDI vs PDF par `num_enlevement`/`RefMessage`
 - Config stockee dans table `external_db_config` avec `nom='drakkar'`
 - Donnees fetched live (pas de cache local) — chaque requete interroge Drakkar directement
-- Routes API : `GET/POST /api/drakkar/config`, `POST /api/drakkar/test`, `GET /api/drakkar/edi`, `GET /api/drakkar/stats`, `GET /api/drakkar/compare`
+- Routes API : `GET/POST /api/drakkar/config`, `POST /api/drakkar/test`, `GET /api/drakkar/edi`, `GET /api/drakkar/stats`, `GET /api/drakkar/compare`, `GET /api/drakkar/compare/export`
 
 ## Connexion BDD externe (DBI SQL Server Azure)
 
@@ -128,6 +128,7 @@ build.bat              # Script de build .exe + creation ZIP release
 - `inject_version()` - Context processor Jinja injectant `version` dans tous les templates
 - `page_gestion()` - Route `/gestion` (page gestion utilisateur)
 - `api_tournee_noms()` - Route `GET /api/tournees/noms` (noms distincts pour autocomplete)
+- `api_statistiques_export()` - Route `GET /api/statistiques/export` (export Excel des stats, openpyxl)
 
 ## Fonctions cles (database_tournees.py)
 
@@ -165,6 +166,16 @@ Le champ `tournee_defaut` existe a deux niveaux : sur la zone (defaut) et sur le
 - Les tournees passees sont conservees en historique (navigables via le date picker)
 - Routes API : `GET /api/tournee-modeles`, `POST /api/tournee-modeles`, `DELETE /api/tournee-modeles/<id>`
 
+## Page Statistiques
+
+- 5 cartes totaux (extractions, enlevements, palettes, poids, colis)
+- 6 graphiques Chart.js : 2 donuts (livraison, palettes), 2 barres (poids, colis), 1 ligne evolution, 1 barre top 10 societes
+- **Filtres** : periode (tout/aujourd'hui/semaine/mois/custom), livraison, zone geographique
+- **Export PDF** : `window.print()` avec CSS `@media print` (masque sidebar, fond blanc)
+- **Export Excel** : route `GET /api/statistiques/export?date_debut=&date_fin=&livraison=&zone=` (openpyxl, 4 feuilles)
+- `get_statistiques(db_path, date_debut, date_fin, livraison, zone)` dans `database.py` — supporte filtres livraison et zone (JOIN ville_zone_mapping)
+- Chart.js charge depuis `/static/js/chart.min.js` (local, 202 KB)
+
 ## Types de palettes
 
 | Type | Comptage Excel | Comptage QC |
@@ -194,7 +205,7 @@ build.bat
 # ou: pyinstaller bibile.spec --clean
 
 # Creer une release GitHub
-gh release create v3.5.1 dist/Bibile.zip --title "v3.5.1" --notes "Changelog"
+gh release create v3.7.0 dist/Bibile.zip --title "v3.7.0" --notes "Changelog"
 ```
 
 ## Donnees de test
