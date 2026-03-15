@@ -3,12 +3,15 @@
  * Comparaison messages EDI (Drakkar) vs extractions PDF
  */
 
+let _lastCompareDate = null;
+
 document.addEventListener('DOMContentLoaded', () => {
     const picker = document.getElementById('ediDatePicker');
     picker.value = new Date().toISOString().split('T')[0];
 
     document.getElementById('btnCompare').addEventListener('click', doCompare);
     document.getElementById('btnViewEdiRaw').addEventListener('click', viewEdiRaw);
+    document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
     document.getElementById('btnTodayEdi').addEventListener('click', () => {
         picker.value = new Date().toISOString().split('T')[0];
     });
@@ -34,10 +37,12 @@ function hideLoading() {
     document.getElementById('ediLoading').classList.add('hidden');
 }
 
+
 async function doCompare() {
     const date = document.getElementById('ediDatePicker').value;
     if (!date) return;
 
+    _lastCompareDate = date;
     document.getElementById('ediRawCard').classList.add('hidden');
     document.getElementById('ediResultCard').classList.add('hidden');
     document.getElementById('ediStats').classList.add('hidden');
@@ -68,6 +73,17 @@ async function doCompare() {
         document.getElementById('statEcarts').textContent = s.ecarts;
         document.getElementById('statPdfOnly').textContent = s.pdf_only;
         document.getElementById('statEdiOnly').textContent = s.edi_only;
+
+        // Taux de correspondance avec couleur
+        const pct = s.match_pct || 0;
+        const pctEl = document.getElementById('statMatchPct');
+        pctEl.textContent = pct + '%';
+        const pctCard = pctEl.closest('.stat-card');
+        pctCard.className = 'stat-card stat-pct';
+        if (pct >= 80) pctCard.classList.add('pct-high');
+        else if (pct >= 50) pctCard.classList.add('pct-mid');
+        else pctCard.classList.add('pct-low');
+
         document.getElementById('ediStats').classList.remove('hidden');
 
         // Tableau
@@ -78,10 +94,17 @@ async function doCompare() {
         data.matches.forEach(m => {
             const statusClass = m.ok ? 'edi-match' : 'edi-ecart';
             const statusText = m.ok ? 'OK' : 'Ecart';
-            tbody.innerHTML += `<tr class="${statusClass}">
+            const scoreClass = m.score >= 80 ? 'score-high' : m.score >= 60 ? 'score-mid' : 'score-low';
+            const ecartTitle = m.ecarts && m.ecarts.length
+                ? m.ecarts.map(e => `${e.champ}: PDF=${e.pdf}, EDI=${e.edi}`).join('\n')
+                : '';
+            const matchedBy = m.matched_by ? `<span class="matched-by">${esc(m.matched_by)}</span>` : '';
+            tbody.innerHTML += `<tr class="${statusClass}" title="${esc(ecartTitle)}">
                 <td><span class="edi-badge ${statusClass}">${statusText}</span></td>
                 <td>${esc(m.num_enlevement)}</td>
                 <td>${esc(m.societe)}</td>
+                <td>${esc(m.edi_societe)}</td>
+                <td><span class="score-badge ${scoreClass}">${m.score}%</span> ${matchedBy}</td>
                 <td>${m.pdf.nb_palettes}</td>
                 <td>${m.edi.total_palettes}</td>
                 <td>${m.pdf.poids_total}</td>
@@ -89,6 +112,15 @@ async function doCompare() {
                 <td>${m.pdf.nb_colis}</td>
                 <td>${m.edi.total_colis}</td>
             </tr>`;
+            // Sous-ligne ecarts si present
+            if (m.ecarts && m.ecarts.length) {
+                const details = m.ecarts.map(e =>
+                    `<span class="ecart-detail">${e.champ}: PDF <b>${e.pdf}</b> / EDI <b>${e.edi}</b></span>`
+                ).join(' ');
+                tbody.innerHTML += `<tr class="ecart-detail-row">
+                    <td colspan="11">${details}</td>
+                </tr>`;
+            }
         });
 
         // PDF seul
@@ -97,6 +129,8 @@ async function doCompare() {
                 <td><span class="edi-badge edi-pdf-only">PDF seul</span></td>
                 <td>${esc(p.num_enlevement)}</td>
                 <td>${esc(p.societe)}</td>
+                <td>-</td>
+                <td>-</td>
                 <td>${p.nb_palettes}</td>
                 <td>-</td>
                 <td>${p.poids_total}</td>
@@ -111,13 +145,15 @@ async function doCompare() {
             tbody.innerHTML += `<tr class="edi-edi-only">
                 <td><span class="edi-badge edi-edi-only">EDI seul</span></td>
                 <td>${esc(e.shipment_id || e.transaction_ref)}</td>
+                <td>-</td>
                 <td>${esc(e.sold_by)}</td>
+                <td>-</td>
+                <td>-</td>
                 <td>${e.total_palettes}</td>
                 <td>-</td>
                 <td>${e.total_poids}</td>
                 <td>-</td>
                 <td>${e.total_colis}</td>
-                <td>-</td>
             </tr>`;
         });
 
@@ -186,6 +222,15 @@ async function viewEdiRaw() {
 }
 
 
+function exportExcel() {
+    if (!_lastCompareDate) {
+        alert('Lancez une comparaison d\'abord.');
+        return;
+    }
+    window.open(`/api/drakkar/compare/export?date=${_lastCompareDate}`, '_blank');
+}
+
+
 function esc(str) {
     if (!str) return '';
     const div = document.createElement('div');
@@ -209,7 +254,7 @@ function makeSortable(table) {
 
 function sortTable(table, colIdx) {
     const tbody = table.querySelector('tbody');
-    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const rows = Array.from(tbody.querySelectorAll('tr:not(.ecart-detail-row)'));
     if (!rows.length) return;
 
     const key = table.id + '_' + colIdx;
@@ -233,5 +278,12 @@ function sortTable(table, colIdx) {
         return asc ? cellA.localeCompare(cellB, 'fr') : cellB.localeCompare(cellA, 'fr');
     });
 
-    rows.forEach(r => tbody.appendChild(r));
+    // Re-append rows, keeping ecart-detail-rows right after their parent
+    rows.forEach(r => {
+        tbody.appendChild(r);
+        const next = r.nextElementSibling;
+        if (next && next.classList.contains('ecart-detail-row')) {
+            tbody.appendChild(next);
+        }
+    });
 }

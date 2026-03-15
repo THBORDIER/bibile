@@ -1729,6 +1729,132 @@ def api_drakkar_compare():
         return jsonify({'erreur': str(e)}), 500
 
 
+@app.route('/api/drakkar/compare/export')
+def api_drakkar_compare_export():
+    """Exporte la comparaison EDI vs PDF en fichier Excel."""
+    try:
+        date = request.args.get('date')
+        if not date:
+            return jsonify({'erreur': 'Parametre date requis'}), 400
+
+        # Reutiliser la meme logique que api_drakkar_compare
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+
+        from datetime import timedelta
+        dt = datetime.strptime(date, '%Y-%m-%d')
+        date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+        date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
+        all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+
+        edi_shipments = []
+        for s in all_shipments:
+            pd_val = s.get('pickup_date', '')
+            if pd_val and pd_val[:10] == date:
+                edi_shipments.append(s)
+
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+        conn = _get_db(DB_PATH)
+        rows = conn.execute("""
+            SELECT e.* FROM enlevements e
+            JOIN extractions ex ON e.extraction_id = ex.id
+            WHERE DATE(ex.date_creation) BETWEEN ? AND ?
+            ORDER BY e.num_enlevement
+        """, (date_from, date)).fetchall()
+        conn.close()
+        pdf_enlevements = [dict(r) for r in rows]
+
+        result = compare_edi_pdf(edi_shipments, pdf_enlevements)
+
+        # Generer le fichier Excel
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from io import BytesIO
+
+        wb = openpyxl.Workbook()
+
+        # --- Feuille Correspondances ---
+        ws = wb.active
+        ws.title = 'Correspondances'
+        headers = ['Statut', 'N Enl.', 'Societe PDF', 'Societe EDI', 'Score', 'Matche par',
+                    'PDF Pal.', 'EDI Pal.', 'PDF Poids', 'EDI Poids', 'PDF Colis', 'EDI Colis', 'Ecarts']
+        header_fill = PatternFill(start_color='1F2937', end_color='1F2937', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        fill_ok = PatternFill(start_color='D4EDDA', end_color='D4EDDA', fill_type='solid')
+        fill_ecart = PatternFill(start_color='FFF3CD', end_color='FFF3CD', fill_type='solid')
+
+        for i, m in enumerate(result['matches'], 2):
+            statut = 'OK' if m['ok'] else 'Ecart'
+            ecarts_txt = ', '.join(f"{e['champ']}: PDF={e['pdf']} EDI={e['edi']}" for e in m.get('ecarts', []))
+            row_data = [statut, m.get('num_enlevement', ''), m.get('societe', ''), m.get('edi_societe', ''),
+                        m.get('score', 0), m.get('matched_by', ''),
+                        m['pdf']['nb_palettes'], m['edi']['total_palettes'],
+                        m['pdf']['poids_total'], m['edi']['total_poids'],
+                        m['pdf']['nb_colis'], m['edi']['total_colis'], ecarts_txt]
+            for col, val in enumerate(row_data, 1):
+                cell = ws.cell(row=i, column=col, value=val)
+                if m['ok']:
+                    cell.fill = fill_ok
+                elif not m['ok']:
+                    cell.fill = fill_ecart
+
+        # --- Feuille PDF seul ---
+        ws2 = wb.create_sheet('PDF seul')
+        headers2 = ['N Enl.', 'Societe', 'Palettes', 'Poids', 'Colis']
+        for col, h in enumerate(headers2, 1):
+            cell = ws2.cell(row=1, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
+        fill_pdf = PatternFill(start_color='F8D7DA', end_color='F8D7DA', fill_type='solid')
+        for i, p in enumerate(result['pdf_only'], 2):
+            row_data = [p.get('num_enlevement', ''), p.get('societe', ''),
+                        p.get('nb_palettes', 0), p.get('poids_total', 0), p.get('nb_colis', 0)]
+            for col, val in enumerate(row_data, 1):
+                cell = ws2.cell(row=i, column=col, value=val)
+                cell.fill = fill_pdf
+
+        # --- Feuille EDI seul ---
+        ws3 = wb.create_sheet('EDI seul')
+        headers3 = ['Shipment ID', 'Ref Transaction', 'Expediteur', 'Palettes', 'Poids', 'Colis']
+        for col, h in enumerate(headers3, 1):
+            cell = ws3.cell(row=1, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
+        fill_edi = PatternFill(start_color='E2D9F3', end_color='E2D9F3', fill_type='solid')
+        for i, e in enumerate(result['edi_only'], 2):
+            row_data = [e.get('shipment_id', ''), e.get('transaction_ref', ''), e.get('sold_by', ''),
+                        e.get('total_palettes', 0), e.get('total_poids', 0), e.get('total_colis', 0)]
+            for col, val in enumerate(row_data, 1):
+                cell = ws3.cell(row=i, column=col, value=val)
+                cell.fill = fill_edi
+
+        # Auto-width
+        for ws_sheet in [ws, ws2, ws3]:
+            for col_cells in ws_sheet.columns:
+                max_len = max((len(str(cell.value or '')) for cell in col_cells), default=10)
+                ws_sheet.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 40)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f'comparaison_edi_{date}.xlsx'
+        return send_file(buf, as_attachment=True, download_name=filename,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("=" * 70)
     print("  BIBILE - Serveur démarré")
