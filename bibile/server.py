@@ -1628,7 +1628,7 @@ def api_drakkar_config_get():
 @app.route('/api/drakkar/config', methods=['POST'])
 def api_drakkar_config_save():
     try:
-        data = request.json
+        data = request.get_json()
         save_drakkar_config(DB_PATH, data)
         return jsonify({'ok': True})
     except Exception as e:
@@ -1638,7 +1638,7 @@ def api_drakkar_config_save():
 @app.route('/api/drakkar/test', methods=['POST'])
 def api_drakkar_test():
     try:
-        data = request.json
+        data = request.get_json()
         success, message = test_drakkar_connection(data)
         return jsonify({'success': success, 'message': message})
     except Exception as e:

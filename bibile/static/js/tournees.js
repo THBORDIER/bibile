@@ -235,18 +235,20 @@ function renderKanban() {
 
         // Selects inline chauffeur/vehicule
         col.querySelector('.kanban-select-chauffeur').addEventListener('change', async (e) => {
-            await fetch(`/api/tournees/${t.id}`, {
+            const resp = await fetch(`/api/tournees/${t.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chauffeur_id: e.target.value || null }),
             });
+            if (!resp.ok) alert('Erreur lors de l\'attribution du chauffeur.');
         });
         col.querySelector('.kanban-select-vehicule').addEventListener('change', async (e) => {
-            await fetch(`/api/tournees/${t.id}`, {
+            const resp = await fetch(`/api/tournees/${t.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ vehicule_id: e.target.value || null }),
             });
+            if (!resp.ok) alert('Erreur lors de l\'attribution du vehicule.');
         });
 
         container.appendChild(col);

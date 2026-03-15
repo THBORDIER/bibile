@@ -293,9 +293,15 @@ async function saveDrakkar() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(getDrakkarFormData()),
         });
+        const resultDiv = document.getElementById('drakkarResult');
+        if (!resp.ok) {
+            resultDiv.classList.remove('hidden', 'alert-success', 'alert-info');
+            resultDiv.classList.add('alert-danger');
+            resultDiv.textContent = 'Erreur serveur lors de la sauvegarde.';
+            return;
+        }
         const data = await resp.json();
         if (data.ok) {
-            const resultDiv = document.getElementById('drakkarResult');
             resultDiv.classList.remove('hidden', 'alert-danger', 'alert-info');
             resultDiv.classList.add('alert-success');
             resultDiv.textContent = 'Configuration Drakkar enregistree.';
