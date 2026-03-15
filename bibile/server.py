@@ -1528,8 +1528,10 @@ def api_update_check():
     # Si pas encore de résultat, tenter un check live
     if not update_available:
         try:
-            from bibile.updater import check_for_update
-            from bibile.version import __version__
+            try:
+                from bibile.updater import check_for_update
+            except ImportError:
+                from updater import check_for_update
             result = check_for_update(__version__)
             if result:
                 update_available = result
@@ -1549,8 +1551,10 @@ def api_update_check():
 def api_update_debug():
     """Diagnostic: teste le check de mise a jour et retourne les details."""
     try:
-        from bibile.version import __version__
-        from bibile.updater import GITHUB_API_URL, check_for_update
+        try:
+            from bibile.updater import GITHUB_API_URL, check_for_update
+        except ImportError:
+            from updater import GITHUB_API_URL, check_for_update
         import urllib.request
         import json
 

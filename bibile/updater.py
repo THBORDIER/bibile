@@ -58,7 +58,8 @@ def check_for_update(current_version):
             'download_url': download_url,
             'changelog': data.get('body', ''),
         }
-    except Exception:
+    except Exception as e:
+        print(f"[UPDATE] Erreur check_for_update: {e}")
         return None
 
 
@@ -80,7 +81,8 @@ def download_update(download_url, dest_path):
                         break
                     f.write(chunk)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"[UPDATE] Erreur download_update: {e}")
         return False
 
 
@@ -117,14 +119,14 @@ timeout /t 2 /nobreak >NUL
 
 :: Extraire la mise a jour
 echo Extraction de la mise a jour...
-powershell -Command "Expand-Archive -Path '{zip_path}' -DestinationPath '{parent_dir}' -Force"
+powershell -Command "Expand-Archive -Path '{str(zip_path)}' -DestinationPath '{str(parent_dir)}' -Force"
 
 :: Nettoyage
-del "{zip_path}"
+del "{str(zip_path)}"
 
 :: Relancer l'application
 echo Redemarrage de Bibile...
-start "" "{app_dir / 'Bibile.exe'}"
+start "" "{str(app_dir / 'Bibile.exe')}"
 
 :: Auto-suppression du script
 del "%~f0"

@@ -137,7 +137,7 @@
                 document.getElementById('updateVersion').textContent = 'v' + data.version;
                 document.getElementById('updateBanner').classList.remove('hidden');
             }
-        } catch (e) { /* silencieux */ }
+        } catch (e) { console.warn('[UPDATE] Check failed:', e.message); }
     }, 3000);
 
     document.getElementById('btnUpdateDismiss').addEventListener('click', () => {
