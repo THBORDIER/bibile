@@ -156,6 +156,9 @@ async function loadData() {
         if (typeof updateMap === 'function' && !document.getElementById('mapView').classList.contains('hidden')) {
             updateMap(tournees, unassigned);
         }
+
+        // Mettre à jour les badges de progression dans le Kanban
+        updateKanbanProgression();
     } catch (e) {
         console.error('Erreur chargement données:', e);
     }
@@ -181,6 +184,7 @@ function renderKanban() {
     tournees.forEach(t => {
         const col = document.createElement('div');
         col.className = 'kanban-column';
+        col.dataset.statut = t.statut || 'brouillon';
 
         const chauffeurOptions = chauffeurs.map(c =>
             `<option value="${c.id}" ${t.chauffeur_id === c.id ? 'selected' : ''}>${escapeHtml(c.nom)} ${escapeHtml(c.prenom || '')}</option>`
@@ -214,6 +218,7 @@ function renderKanban() {
                 <div class="kanban-header-meta">
                     <span class="badge badge-statut badge-${t.statut}">${t.statut}</span>
                     ${nbEnl > 0 ? `<span class="badge">${totalPal} pal. / ${totalKg} kg</span>` : ''}
+                    <span class="kanban-progress" id="progress_${t.id}"></span>
                 </div>
             </div>
             <div class="kanban-column-body" data-tournee-id="${t.id}"></div>
@@ -282,11 +287,13 @@ function initSortable() {
         // Détruire l'ancien Sortable si existant
         if (el._sortable) el._sortable.destroy();
 
+        const isTermine = el.closest('.kanban-column')?.dataset.statut === 'termine';
         el._sortable = new Sortable(el, {
             group: 'tournees',
             animation: 150,
             ghostClass: 'kanban-card-ghost',
             dragClass: 'kanban-card-dragging',
+            disabled: isTermine,
             onEnd: onDragEnd,
         });
     });
@@ -469,4 +476,23 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+
+function updateKanbanProgression() {
+    // Utilise progressionData de carte.js (variable globale)
+    if (typeof progressionData === 'undefined') return;
+
+    tournees.forEach(t => {
+        const el = document.getElementById(`progress_${t.id}`);
+        if (!el) return;
+        const prog = progressionData[t.id];
+        if (prog) {
+            const pct = Math.round(100 * prog.done / prog.total);
+            el.innerHTML = `<span class="progress-badge">${prog.done}/${prog.total}</span>
+                <span class="progress-bar-mini"><span class="progress-fill" style="width:${pct}%"></span></span>`;
+        } else {
+            el.innerHTML = '';
+        }
+    });
 }

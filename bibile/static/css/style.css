@@ -1450,7 +1450,47 @@ kbd {
     border-radius: 8px;
     display: flex;
     flex-direction: column;
+    border-left: 4px solid transparent;
+    transition: opacity 0.3s;
 }
+.kanban-column[data-statut="brouillon"] { border-left: 4px dashed #545d68; }
+.kanban-column[data-statut="planifie"] { border-left: 4px solid #4493f8; }
+.kanban-column[data-statut="en_cours"] { border-left: 4px solid #3fb950; background: rgba(63, 185, 80, 0.03); }
+.kanban-column[data-statut="termine"] { border-left: 4px solid #3fb950; opacity: 0.55; }
+.kanban-column[data-statut="termine"] .kanban-card { opacity: 0.7; pointer-events: none; }
+
+/* Marqueurs progression (carte) */
+.marker-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.marker-done .marker-dot { background: #3fb950 !important; opacity: 0.6; }
+.marker-current .marker-dot { background: #e3952d !important; animation: pulse-marker 1.5s infinite; }
+@keyframes pulse-marker {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(227, 149, 45, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(227, 149, 45, 0); }
+}
+
+/* Légende carte — statuts */
+.legend-statut {
+    display: inline-block; font-size: 0.65rem; padding: 1px 5px;
+    border-radius: 3px; margin-left: 4px; vertical-align: middle;
+}
+.legend-statut-brouillon { background: rgba(84, 93, 104, 0.3); color: #8b949e; }
+.legend-statut-planifie { background: rgba(68, 147, 248, 0.2); color: #79c0ff; }
+.legend-statut-en_cours { background: rgba(63, 185, 80, 0.2); color: #3fb950; }
+.legend-statut-termine { background: rgba(63, 185, 80, 0.3); color: #56d364; }
+.legend-route-info { font-size: 0.75rem; color: var(--text-muted); margin-left: 4px; }
+.legend-progress { font-size: 0.75rem; color: #3fb950; font-weight: 600; margin-left: 4px; }
+
+/* Kanban progression badges */
+.kanban-progress { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.progress-badge { font-size: 0.7rem; color: #3fb950; font-weight: 600; }
+.progress-bar-mini {
+    width: 40px; height: 4px; background: var(--bg-surface);
+    border-radius: 2px; overflow: hidden; display: inline-block;
+}
+.progress-fill { height: 100%; background: #3fb950; border-radius: 2px; transition: width 0.3s; }
 
 .kanban-column-header {
     display: flex;

@@ -1,6 +1,6 @@
 /**
  * Bibile - Vue Carte (Leaflet)
- * Affiche les enlèvements et les véhicules live sur une carte OpenStreetMap
+ * Affiche les enlèvements, itinéraires routiers (OSRM) et véhicules live
  */
 
 let map = null;
@@ -9,6 +9,9 @@ let routesLayer = null;
 let vehiclesLayer = null;
 let mapInitialized = false;
 let vehicleRefreshInterval = null;
+let vehiclePositions = [];  // Positions live des véhicules (partagé avec tournees.js)
+let routeCache = {};        // Cache des itinéraires OSRM par clé de points
+let routeInfos = {};        // Distance/durée par tournée id
 
 // Couleurs pour les tournées (cycle)
 const TOUR_COLORS = [
@@ -46,9 +49,7 @@ function initMap() {
 
 // ===== VEHICULES LIVE =====
 
-// Camion bleu (sélectionné par l'utilisateur) — grand
 const TRUCK_SVG_BLUE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><rect x="1" y="6" width="15" height="10" rx="2" fill="#4493f8" stroke="#fff" stroke-width="1.5"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#316dca" stroke="#fff" stroke-width="1.5"/><circle cx="6" cy="18" r="2" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="19" cy="18" r="2" fill="#222" stroke="#fff" stroke-width="1"/></svg>`;
-// Camion gris (non sélectionné) — petit
 const TRUCK_SVG_GREY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><rect x="1" y="6" width="15" height="10" rx="2" fill="#6e7681" stroke="#ccc" stroke-width="0.8"/><rect x="16" y="9" width="7" height="7" rx="1" fill="#545d68" stroke="#ccc" stroke-width="0.8"/><circle cx="6" cy="18" r="2" fill="#333" stroke="#ccc" stroke-width="0.8"/><circle cx="19" cy="18" r="2" fill="#333" stroke="#ccc" stroke-width="0.8"/></svg>`;
 
 
@@ -61,10 +62,10 @@ async function fetchVehiclePositions() {
             console.warn('Positions vehicules:', data.erreur);
             return;
         }
-        const positions = data.positions || [];
+        vehiclePositions = data.positions || [];
         vehiclesLayer.clearLayers();
 
-        positions.forEach(p => {
+        vehiclePositions.forEach(p => {
             if (p.lat == null || p.lon == null) return;
 
             const isSelected = p.selected;
@@ -100,22 +101,194 @@ async function fetchVehiclePositions() {
 
             vehiclesLayer.addLayer(marker);
         });
+
+        // Recalculer la progression après refresh des positions
+        if (typeof _lastTournees !== 'undefined' && _lastTournees) {
+            estimerProgression(_lastTournees);
+        }
     } catch (e) {
         console.error('Erreur positions vehicules:', e);
     }
 }
 
 
-function updateMap(tournees, unassigned) {
+// ===== DISTANCE HAVERSINE =====
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+
+// ===== ITINERAIRES OSRM =====
+
+async function getRoute(points) {
+    // points = [[lat, lon], ...] — OSRM attend lon,lat
+    if (points.length < 2) return null;
+
+    const cacheKey = points.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join('|');
+    if (routeCache[cacheKey]) return routeCache[cacheKey];
+
+    try {
+        const coords = points.map(p => `${p[1]},${p[0]}`).join(';');
+        const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const data = await resp.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            const route = {
+                geometry: data.routes[0].geometry,
+                distance: data.routes[0].distance,  // metres
+                duration: data.routes[0].duration,   // secondes
+            };
+            routeCache[cacheKey] = route;
+            return route;
+        }
+    } catch (e) {
+        console.warn('OSRM fallback polyline:', e.message);
+    }
+    return null;
+}
+
+function formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    if (h > 0) return `${h}h${m.toString().padStart(2, '0')}`;
+    return `${m} min`;
+}
+
+function formatDistance(meters) {
+    return (meters / 1000).toFixed(0) + ' km';
+}
+
+
+// ===== ESTIMATION DE PROGRESSION =====
+
+let _lastTournees = null;
+let progressionData = {};  // { tourneeId: { done: N, total: N, currentIdx: N } }
+
+function estimerProgression(tournees) {
+    progressionData = {};
+    if (!vehiclePositions || vehiclePositions.length === 0) return;
+
+    tournees.forEach(t => {
+        if (!t.vehicule_id || !t.enlevements || t.enlevements.length === 0) return;
+
+        // Trouver la position du véhicule de cette tournée
+        const vPos = vehiclePositions.find(v =>
+            v.vehicule_id === t.vehicule_id || v.immatriculation === t.vehicule_immat
+        );
+        if (!vPos || vPos.lat == null || vPos.lon == null) return;
+        if (!vPos.isFresh) return; // Véhicule hors ligne → pas d'estimation
+
+        const enls = t.enlevements.filter(e => e.lat && e.lon);
+        if (enls.length === 0) return;
+
+        // Calculer la distance du véhicule à chaque enlèvement
+        let minDist = Infinity;
+        let closestIdx = 0;
+        enls.forEach((e, idx) => {
+            const d = haversineKm(vPos.lat, vPos.lon, e.lat, e.lon);
+            if (d < minDist) {
+                minDist = d;
+                closestIdx = idx;
+            }
+        });
+
+        // Seuil : si le camion est à > 50km de tous les points, pas d'estimation
+        if (minDist > 50) return;
+
+        // Tous avant closestIdx = fait, closestIdx = en cours, après = en attente
+        // Si le camion est à < 2km du point, considérer ce point comme "fait" aussi
+        const doneCount = minDist < 2 ? closestIdx + 1 : closestIdx;
+
+        progressionData[t.id] = {
+            done: doneCount,
+            total: enls.length,
+            currentIdx: closestIdx,
+            minDist: minDist,
+        };
+    });
+
+    // Mettre à jour les marqueurs sur la carte
+    updateMarkerStyles(tournees);
+    // Mettre à jour la légende
+    updateLegendProgression(tournees);
+}
+
+function updateMarkerStyles(tournees) {
+    if (!markersLayer) return;
+
+    markersLayer.eachLayer(marker => {
+        const popup = marker.getPopup();
+        if (!popup) return;
+        const content = popup.getContent();
+
+        // On identifie le marqueur par ses coordonnées
+        const latlng = marker.getLatLng();
+
+        tournees.forEach(t => {
+            const prog = progressionData[t.id];
+            if (!prog) return;
+
+            const enls = (t.enlevements || []).filter(e => e.lat && e.lon);
+            enls.forEach((e, idx) => {
+                if (Math.abs(e.lat - latlng.lat) < 0.0001 && Math.abs(e.lon - latlng.lng) < 0.0001) {
+                    let statusClass = '';
+                    if (idx < prog.done) statusClass = 'marker-done';
+                    else if (idx === prog.currentIdx && prog.minDist < 2) statusClass = '';
+                    else if (idx === prog.currentIdx) statusClass = 'marker-current';
+
+                    if (statusClass) {
+                        const el = marker.getElement();
+                        if (el) el.classList.add(statusClass);
+                    }
+                }
+            });
+        });
+    });
+}
+
+function updateLegendProgression(tournees) {
+    const legendEl = document.getElementById('mapLegend');
+    if (!legendEl) return;
+
+    const items = legendEl.querySelectorAll('.legend-item');
+    items.forEach(item => {
+        const text = item.textContent;
+        tournees.forEach(t => {
+            const prog = progressionData[t.id];
+            if (prog && text.includes(t.nom)) {
+                const existingProg = item.querySelector('.legend-progress');
+                if (existingProg) existingProg.remove();
+                const span = document.createElement('span');
+                span.className = 'legend-progress';
+                span.textContent = ` ${prog.done}/${prog.total}`;
+                item.appendChild(span);
+            }
+        });
+    });
+}
+
+
+// ===== MAP UPDATE =====
+
+async function updateMap(tournees, unassigned) {
     if (!map || !markersLayer) return;
 
+    _lastTournees = tournees;
     markersLayer.clearLayers();
     routesLayer.clearLayers();
+    routeInfos = {};
 
     const legendHtml = [];
     const bounds = [];
 
-    // Afficher les enlèvements non assignés (gris)
+    // Enlèvements non assignés (gris)
     unassigned.forEach(e => {
         if (e.lat && e.lon) {
             const marker = createMarker(e, '#545d68', 'Non assigne');
@@ -128,7 +301,9 @@ function updateMap(tournees, unassigned) {
         legendHtml.push(`<div class="legend-item"><span class="legend-dot" style="background:#545d68"></span>Non assigne (${unassigned.length})</div>`);
     }
 
-    // Afficher chaque tournée
+    // Chaque tournée
+    const routePromises = [];
+
     tournees.forEach((t, idx) => {
         const color = t.couleur || TOUR_COLORS[idx % TOUR_COLORS.length];
         const points = [];
@@ -142,38 +317,66 @@ function updateMap(tournees, unassigned) {
             }
         });
 
-        // Tracer la polyligne du parcours
+        // Itinéraire OSRM (async) avec fallback polyline
         if (points.length >= 2) {
-            const polyline = L.polyline(points, {
-                color: color,
-                weight: 3,
-                opacity: 0.7,
-                dashArray: '5, 10',
+            const promise = getRoute(points).then(route => {
+                if (route) {
+                    // GeoJSON coordinates sont [lon, lat], Leaflet les gère
+                    const layer = L.geoJSON(route.geometry, {
+                        style: { color, weight: 4, opacity: 0.8 },
+                    });
+                    routesLayer.addLayer(layer);
+                    routeInfos[t.id] = {
+                        distance: route.distance,
+                        duration: route.duration,
+                    };
+                } else {
+                    // Fallback polyline droite
+                    const polyline = L.polyline(points, {
+                        color, weight: 3, opacity: 0.7, dashArray: '5, 10',
+                    });
+                    routesLayer.addLayer(polyline);
+                }
             });
-            routesLayer.addLayer(polyline);
+            routePromises.push(promise);
         }
 
         const nbEnl = (t.enlevements || []).length;
-        legendHtml.push(`<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${escapeHtmlCarte(t.nom)} (${nbEnl})</div>`);
+        const statut = t.statut || 'brouillon';
+        const statutBadge = `<span class="legend-statut legend-statut-${statut}">${statut}</span>`;
+        legendHtml.push(`<div class="legend-item" data-tournee-id="${t.id}"><span class="legend-dot" style="background:${color}"></span>${escapeHtmlCarte(t.nom)} (${nbEnl}) ${statutBadge}<span class="legend-route-info" id="routeInfo_${t.id}"></span></div>`);
     });
 
-    // Ajuster la vue si on a des points
+    // Ajuster la vue
     if (bounds.length > 0) {
         map.fitBounds(bounds, { padding: [30, 30] });
     }
 
-    // Mettre à jour la légende
+    // Légende
     const legendEl = document.getElementById('mapLegend');
     if (legendEl) {
         legendEl.innerHTML = legendHtml.join('');
     }
+
+    // Attendre les routes OSRM puis mettre à jour la légende avec distances/durées
+    await Promise.all(routePromises);
+    tournees.forEach(t => {
+        const info = routeInfos[t.id];
+        const el = document.getElementById(`routeInfo_${t.id}`);
+        if (info && el) {
+            el.textContent = ` — ${formatDistance(info.distance)}, ~${formatDuration(info.duration)}`;
+        }
+    });
+
+    // Estimer la progression si des positions véhicules sont disponibles
+    estimerProgression(tournees);
 }
 
 
 function createMarker(e, color, tourName) {
     const icon = L.divIcon({
         className: 'custom-marker',
-        html: `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
+        html: `<div class="marker-dot" style="background:${color}"></div>`,
         iconSize: [16, 16],
         iconAnchor: [8, 8],
     });
