@@ -154,10 +154,10 @@ async function loadData() {
 
         // Mettre à jour la carte si visible
         if (typeof updateMap === 'function' && !document.getElementById('mapView').classList.contains('hidden')) {
-            updateMap(tournees, unassigned);
+            await updateMap(tournees, unassigned);
         }
 
-        // Mettre à jour les badges de progression dans le Kanban
+        // Mettre à jour les badges de progression dans le Kanban (après updateMap pour que progressionData soit rempli)
         updateKanbanProgression();
     } catch (e) {
         console.error('Erreur chargement données:', e);
@@ -444,7 +444,7 @@ async function autoDistribuer() {
 }
 
 
-function toggleView(view) {
+async function toggleView(view) {
     document.querySelectorAll('.btn-view[data-view]').forEach(b => b.classList.remove('active'));
     document.querySelector(`.btn-view[data-view="${view}"]`).classList.add('active');
 
@@ -456,7 +456,7 @@ function toggleView(view) {
         document.getElementById('mapView').classList.remove('hidden');
         if (typeof initMap === 'function') {
             initMap();
-            updateMap(tournees, unassigned);
+            await updateMap(tournees, unassigned);
         }
     }
 }

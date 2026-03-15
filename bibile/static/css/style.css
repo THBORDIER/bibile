@@ -2271,5 +2271,4 @@ kbd {
 .stat-pct.pct-low .stat-value { color: #f85149; }
 
 /* Export button in card header */
-.card-header { display: flex; align-items: center; justify-content: space-between; }
 .btn-sm { padding: 4px 12px; font-size: 0.8rem; }

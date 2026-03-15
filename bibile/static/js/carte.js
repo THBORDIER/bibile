@@ -134,10 +134,13 @@ async function getRoute(points) {
     const cacheKey = points.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join('|');
     if (routeCache[cacheKey]) return routeCache[cacheKey];
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
         const coords = points.map(p => `${p[1]},${p[0]}`).join(';');
         const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
         const data = await resp.json();
         if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
             const route = {
@@ -149,6 +152,7 @@ async function getRoute(points) {
             return route;
         }
     } catch (e) {
+        clearTimeout(timeoutId);
         console.warn('OSRM fallback polyline:', e.message);
     }
     return null;
@@ -224,12 +228,7 @@ function updateMarkerStyles(tournees) {
     if (!markersLayer) return;
 
     markersLayer.eachLayer(marker => {
-        const popup = marker.getPopup();
-        if (!popup) return;
-        const content = popup.getContent();
-
-        // On identifie le marqueur par ses coordonnées
-        const latlng = marker.getLatLng();
+        if (!marker._enlId) return;
 
         tournees.forEach(t => {
             const prog = progressionData[t.id];
@@ -237,10 +236,9 @@ function updateMarkerStyles(tournees) {
 
             const enls = (t.enlevements || []).filter(e => e.lat && e.lon);
             enls.forEach((e, idx) => {
-                if (Math.abs(e.lat - latlng.lat) < 0.0001 && Math.abs(e.lon - latlng.lng) < 0.0001) {
+                if (e.id === marker._enlId) {
                     let statusClass = '';
                     if (idx < prog.done) statusClass = 'marker-done';
-                    else if (idx === prog.currentIdx && prog.minDist < 2) statusClass = '';
                     else if (idx === prog.currentIdx) statusClass = 'marker-current';
 
                     if (statusClass) {
@@ -382,6 +380,7 @@ function createMarker(e, color, tourName) {
     });
 
     const marker = L.marker([e.lat, e.lon], { icon });
+    marker._enlId = e.id;
 
     marker.bindPopup(`
         <div class="map-popup">
