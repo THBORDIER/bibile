@@ -1313,6 +1313,25 @@ kbd {
     }
 }
 
+/* ===== Print / Export PDF ===== */
+@media print {
+    .sidebar, .top-bar, .stats-filters, .no-print,
+    .update-banner, .sidebar-footer { display: none !important; }
+    .app-layout { display: block !important; }
+    .main-area { margin: 0 !important; padding: 0 !important; }
+    .content { padding: 0 !important; }
+    body { background: #fff !important; color: #000 !important; }
+    .stat-card, .card, .chart-card { background: #fff !important; border: 1px solid #ccc !important; color: #000 !important; }
+    .stat-value { color: #000 !important; }
+    .stat-label { color: #555 !important; }
+    .stats-totaux { grid-template-columns: repeat(5, 1fr) !important; }
+    .charts-row { grid-template-columns: repeat(2, 1fr) !important; break-inside: avoid; }
+    .chart-card { break-inside: avoid; page-break-inside: avoid; }
+    .chart-wide { break-inside: avoid; page-break-inside: avoid; }
+    canvas { max-height: 250px !important; }
+    .hidden { display: none !important; }
+}
+
 /* ===== Scrollbar ===== */
 ::-webkit-scrollbar {
     width: 8px;

@@ -670,8 +670,81 @@ def api_statistiques():
     try:
         date_debut = request.args.get('date_debut')
         date_fin = request.args.get('date_fin')
-        stats = get_statistiques(DB_PATH, date_debut, date_fin)
+        livraison = request.args.get('livraison')
+        zone = request.args.get('zone')
+        stats = get_statistiques(DB_PATH, date_debut, date_fin, livraison, zone)
         return jsonify(stats)
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/statistiques/export')
+def api_statistiques_export():
+    """Export Excel des statistiques."""
+    try:
+        from io import BytesIO
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        date_debut = request.args.get('date_debut')
+        date_fin = request.args.get('date_fin')
+        livraison = request.args.get('livraison')
+        zone = request.args.get('zone')
+        stats = get_statistiques(DB_PATH, date_debut, date_fin, livraison, zone)
+
+        wb = openpyxl.Workbook()
+
+        # Sheet 1: Totaux
+        ws = wb.active
+        ws.title = "Totaux"
+        header_fill = PatternFill(start_color="4493F8", end_color="4493F8", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        for col, (label, key) in enumerate([
+            ("Extractions", "nb_extractions"), ("Enlevements", "nb_enlevements"),
+            ("Palettes", "palettes_total"), ("Poids (kg)", "poids_total"), ("Colis", "colis_total"),
+        ], 1):
+            cell = ws.cell(row=1, column=col, value=label)
+            cell.fill = header_fill
+            cell.font = header_font
+            ws.cell(row=2, column=col, value=stats['totaux'][key])
+            ws.column_dimensions[cell.column_letter].width = 16
+
+        # Sheet 2: Par livraison
+        ws2 = wb.create_sheet("Par livraison")
+        ws2.append(["Livraison", "Palettes", "Poids (kg)", "Colis"])
+        for c in range(1, 5):
+            ws2.cell(row=1, column=c).fill = header_fill
+            ws2.cell(row=1, column=c).font = header_font
+        for liv in stats['par_livraison']:
+            ws2.append([liv, stats['par_livraison'].get(liv, 0),
+                        stats['poids_par_livraison'].get(liv, 0),
+                        stats['colis_par_livraison'].get(liv, 0)])
+
+        # Sheet 3: Top societes
+        ws3 = wb.create_sheet("Top societes")
+        ws3.append(["Societe", "Nb enlevements"])
+        for c in range(1, 3):
+            ws3.cell(row=1, column=c).fill = header_fill
+            ws3.cell(row=1, column=c).font = header_font
+        for s in stats['top_societes']:
+            ws3.append([s['societe'], s['nb']])
+
+        # Sheet 4: Evolution
+        ws4 = wb.create_sheet("Evolution")
+        ws4.append(["Date", "Enlevements", "Palettes"])
+        for c in range(1, 4):
+            ws4.cell(row=1, column=c).fill = header_fill
+            ws4.cell(row=1, column=c).font = header_font
+        for d in stats['evolution_quotidienne']:
+            ws4.append([d['date'], d['nb_enlevements'], d['nb_palettes']])
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        period = f"{date_debut or 'all'}_{date_fin or 'all'}"
+        filename = f"statistiques_{period}.xlsx"
+        return send_file(buf, as_attachment=True, download_name=filename,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
 

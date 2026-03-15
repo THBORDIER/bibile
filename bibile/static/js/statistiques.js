@@ -6,6 +6,8 @@ const dateDebut = document.getElementById('dateDebut');
 const dateFin = document.getElementById('dateFin');
 const refreshBtn = document.getElementById('refreshStats');
 const emptyStats = document.getElementById('emptyStats');
+const filterLivraison = document.getElementById('filterLivraison');
+const filterZone = document.getElementById('filterZone');
 
 // Chart instances
 let charts = {};
@@ -67,26 +69,38 @@ function getDateRange() {
     return { date_debut: fmt(start), date_fin: fmt(now) };
 }
 
-// ===== Fetch stats =====
-async function loadStats() {
+// ===== Build query params =====
+function buildParams() {
     const range = getDateRange();
     const params = new URLSearchParams();
     if (range.date_debut) params.set('date_debut', range.date_debut);
     if (range.date_fin) params.set('date_fin', range.date_fin);
+    if (filterLivraison.value) params.set('livraison', filterLivraison.value);
+    if (filterZone.value) params.set('zone', filterZone.value);
+    return params;
+}
+
+// ===== Fetch stats =====
+async function loadStats() {
+    const params = buildParams();
 
     try {
         const resp = await fetch(`/api/statistiques?${params}`);
         const data = await resp.json();
 
         if (data.erreur) {
-            console.error(data.erreur);
+            emptyStats.querySelector('p').textContent = 'Erreur: ' + data.erreur;
+            emptyStats.classList.remove('hidden');
+            document.querySelectorAll('.charts-row, .chart-wide, .stats-totaux').forEach(el => {
+                el.classList.add('hidden');
+            });
             return;
         }
 
         const hasData = data.totaux.nb_enlevements > 0;
         emptyStats.classList.toggle('hidden', hasData);
         document.querySelectorAll('.charts-row, .chart-wide, .stats-totaux').forEach(el => {
-            el.style.display = hasData ? '' : 'none';
+            el.classList.toggle('hidden', !hasData);
         });
 
         if (!hasData) return;
@@ -99,8 +113,20 @@ async function loadStats() {
         renderChartEvolution(data.evolution_quotidienne);
         renderChartSocietes(data.top_societes);
 
+        // Peupler le filtre livraison (une seule fois)
+        if (filterLivraison.options.length <= 1 && data.livraisons) {
+            data.livraisons.forEach(l => {
+                const opt = document.createElement('option');
+                opt.value = l;
+                opt.textContent = l;
+                filterLivraison.appendChild(opt);
+            });
+        }
+
     } catch (err) {
         console.error('Erreur chargement stats:', err);
+        emptyStats.querySelector('p').textContent = 'Erreur de chargement des statistiques.';
+        emptyStats.classList.remove('hidden');
     }
 }
 
@@ -206,7 +232,7 @@ function renderChartEvolution(data) {
     const ctx = document.getElementById('chartEvolution').getContext('2d');
 
     const labels = data.map(d => {
-        const date = new Date(d.date);
+        const date = new Date(d.date + 'T00:00:00');
         return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
     });
 
@@ -216,7 +242,7 @@ function renderChartEvolution(data) {
             labels: labels,
             datasets: [
                 {
-                    label: 'Enlèvements',
+                    label: 'Enlevements',
                     data: data.map(d => d.nb_enlevements),
                     borderColor: '#4493f8',
                     backgroundColor: 'rgba(68, 147, 248, 0.1)',
@@ -260,6 +286,35 @@ function renderChartSocietes(data) {
     createBar('chartSocietes', 'societes', labels, values, () => '#4493f8', true);
 }
 
+// ===== Export PDF =====
+function exportPdf() {
+    window.print();
+}
+
+// ===== Export Excel =====
+function exportExcel() {
+    const params = buildParams();
+    window.open(`/api/statistiques/export?${params}`, '_blank');
+}
+
+// ===== Load zones for filter =====
+async function loadZones() {
+    try {
+        const resp = await fetch('/api/zones');
+        const data = await resp.json();
+        if (data.zones) {
+            data.zones.forEach(z => {
+                const opt = document.createElement('option');
+                opt.value = z.nom;
+                opt.textContent = z.nom;
+                filterZone.appendChild(opt);
+            });
+        }
+    } catch (e) {
+        console.warn('Zones non disponibles:', e.message);
+    }
+}
+
 // ===== Event listeners =====
 periodFilter.addEventListener('change', () => {
     customDates.classList.toggle('hidden', periodFilter.value !== 'custom');
@@ -271,6 +326,11 @@ periodFilter.addEventListener('change', () => {
 refreshBtn.addEventListener('click', loadStats);
 dateDebut.addEventListener('change', loadStats);
 dateFin.addEventListener('change', loadStats);
+filterLivraison.addEventListener('change', loadStats);
+filterZone.addEventListener('change', loadStats);
+document.getElementById('btnExportPdf').addEventListener('click', exportPdf);
+document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
 
 // Init
+loadZones();
 loadStats();

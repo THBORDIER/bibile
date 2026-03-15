@@ -8,13 +8,13 @@
     <div class="card stats-filters">
         <div class="filters-row">
             <div class="filter-group">
-                <label>Période</label>
+                <label>Periode</label>
                 <select id="periodFilter">
-                    <option value="all">Toutes les données</option>
+                    <option value="all">Toutes les donnees</option>
                     <option value="today">Aujourd'hui</option>
                     <option value="week" selected>Cette semaine</option>
                     <option value="month">Ce mois</option>
-                    <option value="custom">Personnalisé</option>
+                    <option value="custom">Personnalise</option>
                 </select>
             </div>
             <div class="filter-group filter-dates hidden" id="customDates">
@@ -23,7 +23,23 @@
                 <label>Au</label>
                 <input type="date" id="dateFin">
             </div>
-            <button id="refreshStats" class="btn-secondary btn-sm">Actualiser</button>
+            <div class="filter-group">
+                <label>Livraison</label>
+                <select id="filterLivraison">
+                    <option value="">-- Toutes --</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Zone</label>
+                <select id="filterZone">
+                    <option value="">-- Toutes --</option>
+                </select>
+            </div>
+            <div class="toolbar-actions no-print">
+                <button id="refreshStats" class="btn btn-secondary btn-sm">Actualiser</button>
+                <button id="btnExportPdf" class="btn btn-secondary btn-sm">Exporter PDF</button>
+                <button id="btnExportExcel" class="btn btn-secondary btn-sm">Exporter Excel</button>
+            </div>
         </div>
     </div>
 

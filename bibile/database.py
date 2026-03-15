@@ -552,7 +552,7 @@ def generate_excel_from_db(db_path, nom_fichier):
     return df
 
 
-def get_statistiques(db_path, date_debut=None, date_fin=None):
+def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zone=None):
     """
     Agrège les statistiques depuis la DB avec filtres de date optionnels.
     Les dates sont au format ISO 8601 (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS).
@@ -568,6 +568,12 @@ def get_statistiques(db_path, date_debut=None, date_fin=None):
     if date_fin:
         where_clauses.append("e.date_creation <= ?")
         params.append(date_fin + "T23:59:59" if len(date_fin) == 10 else date_fin)
+    if livraison:
+        where_clauses.append("en.livraison = ?")
+        params.append(livraison)
+    if zone:
+        where_clauses.append("EXISTS (SELECT 1 FROM ville_zone_mapping vzm JOIN zones z ON z.id = vzm.zone_id WHERE UPPER(TRIM(vzm.ville)) = UPPER(TRIM(en.ville)) AND z.nom = ?)")
+        params.append(zone)
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
@@ -659,6 +665,15 @@ def get_statistiques(db_path, date_debut=None, date_fin=None):
     """, params).fetchall()
     top_societes = [{'societe': r['societe'], 'nb': r['nb']} for r in rows]
 
+    # Liste distincte des livraisons (pour le filtre)
+    rows = conn.execute("""
+        SELECT DISTINCT en.livraison
+        FROM enlevements en
+        WHERE en.livraison IS NOT NULL AND en.livraison != ''
+        ORDER BY en.livraison
+    """).fetchall()
+    livraisons_list = [r['livraison'] for r in rows]
+
     conn.close()
 
     return {
@@ -669,4 +684,5 @@ def get_statistiques(db_path, date_debut=None, date_fin=None):
         'par_type_palette': par_type_palette,
         'evolution_quotidienne': evolution_quotidienne,
         'top_societes': top_societes,
+        'livraisons': livraisons_list,
     }
