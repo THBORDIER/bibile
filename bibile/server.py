@@ -569,9 +569,10 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
                     # Ignorer la référence globale de l'en-tête de page
                     if 'Merci de reporter' in lignes[k]:
                         continue
-                    match_ref = re.search(r'Notre Ré[fF]:\s*([A-Z0-9/+\-]+)', lignes[k])
+                    match_ref = re.search(r'Notre Ré[fF]:\s*([A-Z0-9/+\-\s]+)', lignes[k])
                     if match_ref:
-                        notre_ref = match_ref.group(1).split('+')[0].strip()
+                        # Garder toutes les refs separees par +
+                        notre_ref = match_ref.group(1).strip().rstrip('+').rstrip('-').strip()
                     break
 
             # ÉTAPE 4c: Chercher LIVRAISON (mot-clé: "Fera partie de la Livraison X")
@@ -1283,7 +1284,13 @@ def api_tournee_noms():
         import sqlite3
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT DISTINCT nom FROM tournees ORDER BY nom").fetchall()
+        rows = conn.execute("""
+            SELECT DISTINCT nom FROM (
+                SELECT nom FROM tournees
+                UNION
+                SELECT nom FROM tournee_modeles WHERE actif = 1
+            ) ORDER BY nom
+        """).fetchall()
         return jsonify({'noms': [r['nom'] for r in rows]})
     except Exception as e:
         return jsonify({'noms': []})

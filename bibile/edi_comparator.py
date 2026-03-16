@@ -114,11 +114,27 @@ def _score_match(pdf_enl, edi_ship):
     if not refs:
         ref = pdf_enl.get('reference', '')
         refs = [ref] if ref else []
+    # Eclater les refs multiples (separees par +) et variantes sans /Txx
+    all_refs = []
+    for ref in refs:
+        for part in ref.split('+'):
+            part = part.strip().upper()
+            if part:
+                all_refs.append(part)
+                # Ajouter variante sans suffixe /T01, /T02, etc.
+                if '/' in part:
+                    base = part.rsplit('/', 1)[0]
+                    if base:
+                        all_refs.append(base)
     edi_ref = str(edi_ship.get('transaction_ref', '') or '').upper()
     edi_sid = str(edi_ship.get('shipment_id', '') or '').upper()
-    for ref in refs:
-        ref_up = ref.strip().upper()
-        if ref_up and (ref_up in edi_ref or ref_up in edi_sid or edi_ref in ref_up or edi_sid in ref_up):
+    # Aussi comparer sans /Txx cote EDI
+    edi_ref_base = edi_ref.rsplit('/', 1)[0] if '/' in edi_ref else edi_ref
+    edi_sid_base = edi_sid.rsplit('/', 1)[0] if '/' in edi_sid else edi_sid
+    for ref_up in all_refs:
+        if ref_up and (ref_up in edi_ref or ref_up in edi_sid or
+                       edi_ref in ref_up or edi_sid in ref_up or
+                       ref_up == edi_ref_base or ref_up == edi_sid_base):
             score += 10
             matched_by.append('Ref')
             break
@@ -203,6 +219,7 @@ def compare_edi_pdf(edi_shipments, pdf_enlevements):
 
         matches.append({
             'num_enlevement': pdf.get('num_enlevement', ''),
+            'reference': pdf.get('reference', ''),
             'societe': pdf.get('societe', ''),
             'edi_societe': edi.get('sold_by', ''),
             'shipment_id': edi.get('shipment_id', ''),
@@ -228,6 +245,7 @@ def compare_edi_pdf(edi_shipments, pdf_enlevements):
         if i not in matched_pdf:
             pdf_only.append({
                 'num_enlevement': pdf.get('num_enlevement', ''),
+                'reference': pdf.get('reference', ''),
                 'societe': pdf.get('societe', ''),
                 'nb_palettes': pdf.get('nb_palettes', 0),
                 'poids_total': pdf.get('poids_total', 0),

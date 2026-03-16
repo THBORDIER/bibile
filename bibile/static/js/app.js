@@ -348,7 +348,7 @@ async function uploadPDF(file) {
         // Fill textarea with extracted text
         textInput.value = data.texte;
         updateCharCount();
-        showStatus('PDF importé avec succès. Vérifiez le texte puis cliquez sur Générer.', 'success');
+        showStatus('PDF importe avec succes. Verifiez le texte puis cliquez sur Generer.', 'success');
 
     } catch (error) {
         console.error('PDF upload error:', error);
@@ -356,6 +356,91 @@ async function uploadPDF(file) {
     } finally {
         dropZone.classList.remove('drop-zone-loading');
         dropZoneProgress.classList.add('hidden');
+    }
+}
+
+async function uploadMultiplePDFs(files) {
+    const pdfFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    if (pdfFiles.length === 0) {
+        showStatus('Aucun fichier PDF detecte.', 'error');
+        return;
+    }
+
+    // Single file → classic flow (textarea)
+    if (pdfFiles.length === 1) {
+        uploadPDF(pdfFiles[0]);
+        return;
+    }
+
+    // Multiple files → batch import (upload + save to BDD directly)
+    dropZone.classList.add('drop-zone-loading');
+    dropZoneProgress.classList.remove('hidden');
+    const progressText = dropZoneProgress.querySelector('p');
+    hideStatus();
+
+    let successes = 0;
+    let failures = 0;
+    let totalSaved = 0;
+    let totalUpdated = 0;
+    const errors = [];
+
+    for (let i = 0; i < pdfFiles.length; i++) {
+        const file = pdfFiles[i];
+        progressText.textContent = `Import ${i + 1}/${pdfFiles.length} : ${file.name}...`;
+
+        try {
+            // Step 1: Upload PDF → extract text
+            const formData = new FormData();
+            formData.append('pdf', file);
+            const uploadResp = await fetch('/upload-pdf', { method: 'POST', body: formData });
+            const uploadData = await uploadResp.json();
+
+            if (!uploadResp.ok) {
+                throw new Error(uploadData.erreur || 'Extraction echouee');
+            }
+
+            const texte = uploadData.texte;
+            if (!texte || texte.length < 50) {
+                throw new Error('Texte extrait trop court');
+            }
+
+            // Step 2: Save to BDD
+            const saveResp = await fetch('/sauvegarder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ texte: texte })
+            });
+            const saveData = await saveResp.json();
+
+            if (saveData.erreur) {
+                throw new Error(saveData.erreur);
+            }
+
+            successes++;
+            totalSaved += (saveData.nb_saved || 0);
+            totalUpdated += (saveData.nb_updated || 0);
+
+        } catch (error) {
+            failures++;
+            errors.push(`${file.name}: ${error.message}`);
+            console.error(`Erreur import ${file.name}:`, error);
+        }
+    }
+
+    dropZone.classList.remove('drop-zone-loading');
+    dropZoneProgress.classList.add('hidden');
+    progressText.textContent = 'Extraction du texte en cours...';
+
+    // Build result message
+    let msg = `${successes}/${pdfFiles.length} PDF importe(s)`;
+    if (totalSaved > 0) msg += ` — ${totalSaved} enlevement(s) nouveau(x)`;
+    if (totalUpdated > 0) msg += ` — ${totalUpdated} mis a jour`;
+    if (failures > 0) msg += ` — ${failures} echec(s)`;
+
+    showStatus(msg, failures === 0 ? 'success' : (successes > 0 ? 'success' : 'error'));
+
+    if (errors.length > 0) {
+        console.warn('Erreurs import batch:', errors);
     }
 }
 
@@ -376,14 +461,14 @@ dropZone.addEventListener('drop', (e) => {
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-        uploadPDF(files[0]);
+        uploadMultiplePDFs(files);
     }
 });
 
 // File input (browse button)
 fileInput.addEventListener('change', () => {
     if (fileInput.files.length > 0) {
-        uploadPDF(fileInput.files[0]);
+        uploadMultiplePDFs(fileInput.files);
         fileInput.value = ''; // Reset for re-upload
     }
 });

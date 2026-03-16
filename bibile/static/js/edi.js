@@ -12,6 +12,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnCompare').addEventListener('click', doCompare);
     document.getElementById('btnViewEdiRaw').addEventListener('click', viewEdiRaw);
     document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
+
+    // Onglets T01 / T02
+    document.querySelectorAll('.edi-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.edi-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const target = tab.dataset.tab;
+            document.getElementById('ediTabT01').style.display = target === 't01' ? '' : 'none';
+            document.getElementById('ediTabT02').style.display = target === 't02' ? '' : 'none';
+        });
+    });
+
     document.getElementById('btnTodayEdi').addEventListener('click', () => {
         picker.value = new Date().toISOString().split('T')[0];
     });
@@ -112,7 +124,7 @@ async function doCompare() {
             const matchedBy = m.matched_by ? `<span class="matched-by">${esc(m.matched_by)}</span>` : '';
             tbody.innerHTML += `<tr class="${statusClass}" title="${esc(ecartTitle)}">
                 <td><span class="edi-badge ${statusClass}">${statusText}</span></td>
-                <td>${esc(m.num_enlevement)}</td>
+                <td>${esc(m.reference || m.num_enlevement)}</td>
                 <td>${esc(m.societe)}</td>
                 <td>${esc(m.edi_societe)}</td>
                 <td><span class="score-badge ${scoreClass}">${m.score}%</span> ${matchedBy}</td>
@@ -138,7 +150,7 @@ async function doCompare() {
         data.pdf_only.forEach(p => {
             tbody.innerHTML += `<tr class="edi-pdf-only">
                 <td><span class="edi-badge edi-pdf-only">PDF seul</span></td>
-                <td>${esc(p.num_enlevement)}</td>
+                <td>${esc(p.reference || p.num_enlevement)}</td>
                 <td>${esc(p.societe)}</td>
                 <td>-</td>
                 <td>-</td>
@@ -151,8 +163,18 @@ async function doCompare() {
             </tr>`;
         });
 
-        // EDI seul
+        // Separer EDI seuls en T01 (enlevements) et T02+ (autres transports)
+        const ediT01 = [];
+        const ediT02 = [];
         data.edi_only.forEach(e => {
+            const tref = (e.transaction_ref || '').toUpperCase();
+            const isT01 = tref.endsWith('/T01') || !tref.includes('/T');
+            if (isT01) ediT01.push(e);
+            else ediT02.push(e);
+        });
+
+        // EDI T01 seul (dans le tableau principal)
+        ediT01.forEach(e => {
             const ediInfo = [e.sold_by, e.delivery_city, e.delivery_name].filter(Boolean).join(' | ');
             tbody.innerHTML += `<tr class="edi-edi-only">
                 <td><span class="edi-badge edi-edi-only">EDI seul</span></td>
@@ -177,8 +199,35 @@ async function doCompare() {
             </td></tr>`;
         }
 
+        // EDI T02+ (dans le second onglet)
+        const t02Body = document.getElementById('ediT02Body');
+        t02Body.innerHTML = '';
+        ediT02.forEach(e => {
+            const dateStr = e.date_trans ? new Date(e.date_trans).toLocaleDateString('fr-FR') : '-';
+            t02Body.innerHTML += `<tr>
+                <td>${esc(e.transaction_ref || e.shipment_id)}</td>
+                <td>${esc(e.sold_by)}</td>
+                <td>${esc(e.delivery_name)}</td>
+                <td>${esc(e.delivery_city)}</td>
+                <td>${e.total_palettes}</td>
+                <td>${e.total_poids}</td>
+                <td>${e.total_colis}</td>
+                <td>${dateStr}</td>
+            </tr>`;
+        });
+
+        // Compteurs onglets
+        const t01Count = data.matches.length + data.pdf_only.length + ediT01.length;
+        const t02Count = ediT02.length;
+        document.getElementById('tabT01Count').textContent = t01Count;
+        document.getElementById('tabT02Count').textContent = t02Count;
+
+        // MAJ stat EDI seul (ne compter que T01)
+        document.getElementById('statEdiOnly').textContent = ediT01.length;
+
         document.getElementById('ediResultCard').classList.remove('hidden');
-        makeSortable(document.querySelector('#ediResultCard .data-table'));
+        makeSortable(document.querySelector('#ediResultCard #ediResultTable'));
+        if (ediT02.length) makeSortable(document.querySelector('#ediResultCard #ediT02Table'));
 
     } catch (e) {
         hideLoading();

@@ -71,26 +71,53 @@
 <div id="ediResultCard" class="card hidden" style="margin-top: 16px;">
     <div class="card-header">
         <h3>Resultat de la comparaison</h3>
-        <button id="btnExportExcel" class="btn btn-secondary btn-sm" title="Exporter en Excel">Exporter Excel</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <div class="edi-tabs">
+                <button class="edi-tab active" data-tab="t01" id="tabT01">Enlevements (T01) <span id="tabT01Count" class="tab-count"></span></button>
+                <button class="edi-tab" data-tab="t02" id="tabT02">Autres transports <span id="tabT02Count" class="tab-count"></span></button>
+            </div>
+            <button id="btnExportExcel" class="btn btn-secondary btn-sm" title="Exporter en Excel">Exporter Excel</button>
+        </div>
     </div>
-    <table class="data-table" id="ediResultTable">
-        <thead>
-            <tr>
-                <th>Statut</th>
-                <th>N Enl.</th>
-                <th>Societe PDF</th>
-                <th>Societe EDI</th>
-                <th>Score</th>
-                <th>PDF Pal.</th>
-                <th>EDI Pal.</th>
-                <th>PDF Poids</th>
-                <th>EDI Poids</th>
-                <th>PDF Colis</th>
-                <th>EDI Colis</th>
-            </tr>
-        </thead>
-        <tbody id="ediResultBody"></tbody>
-    </table>
+    <!-- Tab T01: Enlevements -->
+    <div id="ediTabT01" class="edi-tab-content">
+        <table class="data-table" id="ediResultTable">
+            <thead>
+                <tr>
+                    <th>Statut</th>
+                    <th>Reference</th>
+                    <th>Societe PDF</th>
+                    <th>Societe EDI</th>
+                    <th>Score</th>
+                    <th>PDF Pal.</th>
+                    <th>EDI Pal.</th>
+                    <th>PDF Poids</th>
+                    <th>EDI Poids</th>
+                    <th>PDF Colis</th>
+                    <th>EDI Colis</th>
+                </tr>
+            </thead>
+            <tbody id="ediResultBody"></tbody>
+        </table>
+    </div>
+    <!-- Tab T02+: Autres transports -->
+    <div id="ediTabT02" class="edi-tab-content" style="display: none;">
+        <table class="data-table" id="ediT02Table">
+            <thead>
+                <tr>
+                    <th>Reference</th>
+                    <th>Expediteur</th>
+                    <th>Destination</th>
+                    <th>Ville livraison</th>
+                    <th>Palettes</th>
+                    <th>Poids</th>
+                    <th>Colis</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody id="ediT02Body"></tbody>
+        </table>
+    </div>
 </div>
 
 <!-- Vue EDI parses -->

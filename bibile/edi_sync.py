@@ -225,10 +225,26 @@ def fetch_edi_stats(config, date_from=None, date_to=None):
 _NS = {'h': 'http://JFH.Interfaces2013.Schemas.Schemas.HillebrandTransportInstructionsMessage_2.0'}
 
 
+def _fix_encoding(text):
+    """Corrige le double-encodage UTF-8 sur une chaine individuelle.
+
+    pyodbc peut decoder NTEXT comme latin-1, produisant 'FranÃ§ois' au lieu de 'François'.
+    """
+    if not text:
+        return text
+    try:
+        fixed = text.encode('latin-1').decode('utf-8')
+        return fixed
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return text
+
+
 def _find_text(elem, path, ns=None):
     """Trouve le texte d'un sous-element, retourne '' si absent."""
     child = elem.find(path, ns or _NS)
-    return child.text.strip() if child is not None and child.text else ''
+    if child is not None and child.text:
+        return _fix_encoding(child.text.strip())
+    return ''
 
 
 def parse_source_cnx(source_cnx_text):

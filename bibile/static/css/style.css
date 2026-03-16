@@ -2284,6 +2284,45 @@ kbd {
 .edi-edi-only .edi-badge, tr.edi-edi-only { background: rgba(163, 113, 247, 0.1); }
 .edi-badge.edi-edi-only { background: rgba(163, 113, 247, 0.2); color: #a371f7; }
 
+/* EDI tabs */
+.edi-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 3px;
+}
+.edi-tab {
+    padding: 6px 14px;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+.edi-tab:hover { color: var(--text-primary); }
+.edi-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.tab-count {
+    display: inline-block;
+    font-size: 0.7rem;
+    background: rgba(255,255,255,0.1);
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 4px;
+}
+.edi-tab.active .tab-count {
+    background: rgba(88, 166, 255, 0.2);
+    color: #58a6ff;
+}
+
 /* Score badges */
 .score-badge {
     display: inline-block;
