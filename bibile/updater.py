@@ -4,6 +4,7 @@ Utilise uniquement urllib (stdlib) pour eviter les dependances externes.
 """
 
 import json
+import logging
 import os
 import sys
 import subprocess
@@ -13,6 +14,24 @@ from urllib.error import URLError
 
 
 GITHUB_API_URL = "https://api.github.com/repos/THBORDIER/bibile/releases/latest"
+
+# Logger fichier pour le systeme de mise a jour
+_logger = logging.getLogger('bibile.updater')
+
+
+def _setup_logger():
+    """Configure le logger pour ecrire dans un fichier update.log."""
+    if _logger.handlers:
+        return
+    _logger.setLevel(logging.DEBUG)
+    data_dir = Path(os.environ.get('BIBILE_DATA_DIR', '.'))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        fh = logging.FileHandler(data_dir / 'update.log', encoding='utf-8')
+        fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+        _logger.addHandler(fh)
+    except Exception:
+        pass  # Fallback: pas de fichier log
 
 
 def _parse_version(v):
@@ -34,13 +53,17 @@ def check_for_update(current_version):
     Retourne un dict {version, download_url, changelog} ou None.
     Ne lance jamais d'exception.
     """
+    _setup_logger()
     try:
+        _logger.info(f"Verification mise a jour (version locale: {current_version})")
         req = Request(GITHUB_API_URL, headers={'User-Agent': 'Bibile-Updater'})
-        with urlopen(req, timeout=5) as resp:
+        with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode('utf-8'))
 
         tag = data.get('tag_name', '')
+        _logger.info(f"Version GitHub: {tag}")
         if not tag or not is_newer(tag, current_version):
+            _logger.info(f"Pas de mise a jour ({tag} <= {current_version})")
             return None
 
         # Chercher le ZIP dans les assets
@@ -51,15 +74,17 @@ def check_for_update(current_version):
                 break
 
         if not download_url:
+            _logger.warning(f"Release {tag} sans asset ZIP")
             return None
 
+        _logger.info(f"Mise a jour disponible: {tag} ({download_url})")
         return {
             'version': tag.lstrip('v'),
             'download_url': download_url,
             'changelog': data.get('body', ''),
         }
     except Exception as e:
-        print(f"[UPDATE] Erreur check_for_update: {e}")
+        _logger.error(f"Erreur check_for_update: {e}")
         return None
 
 
@@ -80,9 +105,10 @@ def download_update(download_url, dest_path):
                     if not chunk:
                         break
                     f.write(chunk)
+        _logger.info(f"Telechargement termine: {dest_path}")
         return True
     except Exception as e:
-        print(f"[UPDATE] Erreur download_update: {e}")
+        _logger.error(f"Erreur download_update: {e}")
         return False
 
 

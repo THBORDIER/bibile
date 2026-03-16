@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnTestDrakkar').addEventListener('click', testDrakkar);
     document.getElementById('btnSaveDrakkar').addEventListener('click', saveDrakkar);
 
+    // === MISE A JOUR ===
+    document.getElementById('btnCheckUpdate').addEventListener('click', diagUpdate);
+
     // === RECHERCHE ===
     document.getElementById('searchExtVehicles').addEventListener('input', filterExtVehicles);
 
@@ -308,6 +311,43 @@ async function saveDrakkar() {
         }
     } catch (e) {
         console.error('Erreur sauvegarde config Drakkar:', e);
+    }
+}
+
+
+// ===== MISE A JOUR =====
+
+async function diagUpdate() {
+    const container = document.getElementById('updateDiagResult');
+    container.innerHTML = '<p class="text-muted">Verification en cours...</p>';
+
+    try {
+        const resp = await fetch('/api/update/debug');
+        const data = await resp.json();
+
+        if (data.error) {
+            container.innerHTML = `
+                <div class="alert alert-danger">Erreur: ${escapeHtml(data.error)} (${escapeHtml(data.type || '')})</div>`;
+            return;
+        }
+
+        const hasUpdate = data.update_result != null;
+        const statusClass = hasUpdate ? 'alert-success' : 'alert-info';
+        const statusText = hasUpdate
+            ? `Mise a jour disponible: v${data.update_result.version}`
+            : 'Application a jour';
+
+        container.innerHTML = `
+            <div class="alert ${statusClass}">${statusText}</div>
+            <table class="data-table" style="margin-top: 12px;">
+                <tr><td><strong>Version locale</strong></td><td>${escapeHtml(data.local_version)}</td></tr>
+                <tr><td><strong>Version GitHub</strong></td><td>${escapeHtml(data.remote_tag || 'N/A')}</td></tr>
+                <tr><td><strong>Assets</strong></td><td>${(data.assets || []).map(a => escapeHtml(a)).join(', ') || 'Aucun'}</td></tr>
+                <tr><td><strong>Cache MAJ</strong></td><td>${data.update_available_cache ? 'Oui' : 'Non'}</td></tr>
+                <tr><td><strong>URL API</strong></td><td style="font-size: 0.85em;">${escapeHtml(data.github_url || '')}</td></tr>
+            </table>`;
+    } catch (e) {
+        container.innerHTML = `<div class="alert alert-danger">Erreur reseau: ${escapeHtml(e.message)}</div>`;
     }
 }
 

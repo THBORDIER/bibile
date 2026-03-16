@@ -202,6 +202,23 @@ a:hover {
     font-size: 14px;
 }
 
+.update-changelog {
+    color: var(--text-muted);
+    font-size: 12px;
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.update-diag table {
+    width: 100%;
+}
+
+.update-diag td {
+    padding: 6px 12px;
+}
+
 .update-progress {
     color: var(--text-muted);
     font-size: 13px;
@@ -1180,7 +1197,7 @@ kbd {
 
 .stats-totaux {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 16px;
     margin-bottom: 24px;
 }
@@ -1188,6 +1205,21 @@ kbd {
 .stat-total {
     text-align: center;
     padding: 20px 16px;
+}
+
+.stat-avg {
+    text-align: center;
+    padding: 20px 16px;
+    border-left: 2px solid var(--border-primary);
+}
+
+.stat-avg .stat-value {
+    color: var(--accent-blue);
+    font-size: 1.4em;
+}
+
+.stat-avg .stat-label {
+    font-size: 11px;
 }
 
 .stat-total .stat-value {
@@ -1300,7 +1332,7 @@ kbd {
 /* Responsive stats */
 @media (max-width: 1200px) {
     .stats-totaux {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(4, 1fr);
     }
 }
 
@@ -1324,11 +1356,11 @@ kbd {
     .stat-card, .card, .chart-card { background: #fff !important; border: 1px solid #ccc !important; color: #000 !important; }
     .stat-value { color: #000 !important; }
     .stat-label { color: #555 !important; }
-    .stats-totaux { grid-template-columns: repeat(5, 1fr) !important; }
+    .stats-totaux { grid-template-columns: repeat(7, 1fr) !important; }
     .charts-row { grid-template-columns: repeat(2, 1fr) !important; break-inside: avoid; }
     .chart-card { break-inside: avoid; page-break-inside: avoid; }
     .chart-wide { break-inside: avoid; page-break-inside: avoid; }
-    canvas { max-height: 250px !important; }
+    canvas { max-height: 350px !important; }
     .hidden { display: none !important; }
 }
 

@@ -665,13 +665,64 @@ def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zo
     """, params).fetchall()
     top_societes = [{'societe': r['societe'], 'nb': r['nb']} for r in rows]
 
-    # Liste distincte des livraisons (pour le filtre)
-    rows = conn.execute("""
+    # Par zone geographique
+    rows = conn.execute(f"""
+        SELECT z.nom as zone_nom, COUNT(DISTINCT en.id) as nb_enlevements,
+               COALESCE(SUM(en.nb_palettes), 0) as palettes
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        LEFT JOIN ville_zone_mapping vzm ON UPPER(TRIM(vzm.ville)) = UPPER(TRIM(en.ville))
+        LEFT JOIN zones z ON z.id = vzm.zone_id
+        WHERE {where_sql}
+        GROUP BY z.nom ORDER BY nb_enlevements DESC
+    """, params).fetchall()
+    par_zone = [{'zone': r['zone_nom'] or 'Non assigne', 'nb': r['nb_enlevements'], 'palettes': r['palettes']} for r in rows]
+
+    # Par chauffeur (depuis tournees + chauffeurs)
+    date_clauses = []
+    date_params = []
+    if date_debut:
+        date_clauses.append("t.date_tournee >= ?")
+        date_params.append(date_debut)
+    if date_fin:
+        date_clauses.append("t.date_tournee <= ?")
+        date_params.append(date_fin)
+    date_where = " AND ".join(date_clauses) if date_clauses else "1=1"
+    rows = conn.execute(f"""
+        SELECT c.nom || ' ' || COALESCE(c.prenom, '') as chauffeur, COUNT(te.enlevement_id) as nb_enlevements
+        FROM tournees t
+        JOIN tournee_enlevements te ON te.tournee_id = t.id
+        JOIN chauffeurs c ON c.id = t.chauffeur_id
+        WHERE {date_where}
+        GROUP BY t.chauffeur_id ORDER BY nb_enlevements DESC LIMIT 10
+    """, date_params).fetchall()
+    par_chauffeur = [{'chauffeur': r['chauffeur'].strip(), 'nb': r['nb_enlevements']} for r in rows]
+
+    # Metriques d'efficacite
+    nb_enl = totaux['nb_enlevements']
+    efficacite = {
+        'moy_palettes': round(totaux['palettes_total'] / nb_enl, 1) if nb_enl > 0 else 0,
+        'moy_poids': round(totaux['poids_total'] / nb_enl, 1) if nb_enl > 0 else 0,
+        'moy_colis': round(totaux['colis_total'] / nb_enl, 1) if nb_enl > 0 else 0,
+    }
+
+    # Liste distincte des livraisons (filtree par periode et zone, pas par livraison)
+    livr_clauses = [c for c in where_clauses if 'livraison' not in c]
+    livr_params = []
+    if date_debut:
+        livr_params.append(date_debut)
+    if date_fin:
+        livr_params.append(date_fin + "T23:59:59" if len(date_fin) == 10 else date_fin)
+    if zone:
+        livr_params.append(zone)
+    livr_where = " AND ".join(livr_clauses) if livr_clauses else "1=1"
+    rows = conn.execute(f"""
         SELECT DISTINCT en.livraison
-        FROM enlevements en
-        WHERE en.livraison IS NOT NULL AND en.livraison != ''
+        FROM extractions e
+        JOIN enlevements en ON en.extraction_id = e.id
+        WHERE {livr_where} AND en.livraison IS NOT NULL AND en.livraison != ''
         ORDER BY en.livraison
-    """).fetchall()
+    """, livr_params).fetchall()
     livraisons_list = [r['livraison'] for r in rows]
 
     conn.close()
@@ -684,5 +735,8 @@ def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zo
         'par_type_palette': par_type_palette,
         'evolution_quotidienne': evolution_quotidienne,
         'top_societes': top_societes,
+        'par_zone': par_zone,
+        'par_chauffeur': par_chauffeur,
+        'efficacite': efficacite,
         'livraisons': livraisons_list,
     }

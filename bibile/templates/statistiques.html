@@ -65,6 +65,14 @@
             <div class="stat-value" id="totalColis">-</div>
             <div class="stat-label">Colis</div>
         </div>
+        <div class="stat-card stat-avg">
+            <div class="stat-value" id="avgPalettes">-</div>
+            <div class="stat-label">Moy. pal./enl.</div>
+        </div>
+        <div class="stat-card stat-avg">
+            <div class="stat-value" id="avgPoids">-</div>
+            <div class="stat-label">Moy. kg/enl.</div>
+        </div>
     </div>
 
     <!-- Graphiques row 1 : camemberts -->
@@ -95,6 +103,18 @@
     <div class="card chart-card chart-wide">
         <div class="card-header"><h3>Évolution quotidienne</h3></div>
         <canvas id="chartEvolution"></canvas>
+    </div>
+
+    <!-- Row 4 : zone + chauffeur -->
+    <div class="charts-row">
+        <div class="card chart-card">
+            <div class="card-header"><h3>Répartition par zone</h3></div>
+            <canvas id="chartZone"></canvas>
+        </div>
+        <div class="card chart-card">
+            <div class="card-header"><h3>Enlèvements par chauffeur</h3></div>
+            <canvas id="chartChauffeur"></canvas>
+        </div>
     </div>
 
     <!-- Top sociétés -->

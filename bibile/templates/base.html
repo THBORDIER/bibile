@@ -104,6 +104,7 @@
                     <span class="update-text">
                         Nouvelle version <strong id="updateVersion"></strong> disponible !
                     </span>
+                    <span id="updateChangelog" class="update-changelog"></span>
                     <button id="btnUpdateInstall" class="btn btn-primary btn-sm">Installer</button>
                     <button id="btnUpdateDismiss" class="btn btn-secondary btn-sm">Plus tard</button>
                 </div>
@@ -128,16 +129,27 @@
     {% block scripts %}{% endblock %}
 
     <script>
-    // Verification de mise a jour (3s apres chargement)
-    setTimeout(async () => {
+    // Verification de mise a jour (3s apres chargement, retry apres 30s si echec)
+    async function checkForUpdate() {
         try {
             const resp = await fetch('/api/update/check');
             const data = await resp.json();
             if (data.available) {
                 document.getElementById('updateVersion').textContent = 'v' + data.version;
+                if (data.changelog) {
+                    const cl = document.getElementById('updateChangelog');
+                    // Premiere ligne du changelog seulement
+                    cl.textContent = '— ' + data.changelog.split('\n').filter(l => l.trim())[0];
+                }
                 document.getElementById('updateBanner').classList.remove('hidden');
+                return true;
             }
         } catch (e) { console.warn('[UPDATE] Check failed:', e.message); }
+        return false;
+    }
+    setTimeout(async () => {
+        const found = await checkForUpdate();
+        if (!found) setTimeout(checkForUpdate, 30000);  // Retry 1x apres 30s
     }, 3000);
 
     document.getElementById('btnUpdateDismiss').addEventListener('click', () => {

@@ -142,11 +142,12 @@ async function doCompare() {
 
         // EDI seul
         data.edi_only.forEach(e => {
+            const ediInfo = [e.sold_by, e.delivery_city, e.delivery_name].filter(Boolean).join(' | ');
             tbody.innerHTML += `<tr class="edi-edi-only">
                 <td><span class="edi-badge edi-edi-only">EDI seul</span></td>
                 <td>${esc(e.shipment_id || e.transaction_ref)}</td>
                 <td>-</td>
-                <td>${esc(e.sold_by)}</td>
+                <td title="${esc(ediInfo)}">${esc(e.sold_by)}</td>
                 <td>-</td>
                 <td>-</td>
                 <td>${e.total_palettes}</td>
@@ -156,6 +157,14 @@ async function doCompare() {
                 <td>${e.total_colis}</td>
             </tr>`;
         });
+
+        // Diagnostic: meilleurs scores rejetes (sous le seuil)
+        if (data.best_rejected && data.best_rejected.length) {
+            tbody.innerHTML += `<tr class="ecart-detail-row"><td colspan="11" style="text-align:center; color:#8b949e; padding: 8px;">
+                <em>Meilleurs scores rejetes (sous le seuil) :</em>
+                ${data.best_rejected.map(r => `${esc(r.pdf_societe)} / ${esc(r.edi_sold_by)} = ${r.score}pts (${esc(r.matched_by)})`).join(' | ')}
+            </td></tr>`;
+        }
 
         document.getElementById('ediResultCard').classList.remove('hidden');
         makeSortable(document.querySelector('#ediResultCard .data-table'));

@@ -82,7 +82,20 @@ function buildParams() {
 
 // ===== Fetch stats =====
 async function loadStats() {
+    // Validation dates custom
+    if (periodFilter.value === 'custom' && dateDebut.value && dateFin.value) {
+        if (dateDebut.value > dateFin.value) {
+            emptyStats.querySelector('p').textContent = 'La date de debut doit etre anterieure a la date de fin.';
+            emptyStats.classList.remove('hidden');
+            document.querySelectorAll('.charts-row, .chart-wide, .stats-totaux').forEach(el => el.classList.add('hidden'));
+            return;
+        }
+    }
+
     const params = buildParams();
+
+    // Spinner de chargement
+    document.querySelectorAll('.stats-totaux .stat-value').forEach(el => el.textContent = '...');
 
     try {
         const resp = await fetch(`/api/statistiques?${params}`);
@@ -105,22 +118,27 @@ async function loadStats() {
 
         if (!hasData) return;
 
-        updateTotaux(data.totaux);
+        updateTotaux(data.totaux, data.efficacite);
         renderChartLivraison(data.par_livraison);
         renderChartPalettes(data.par_type_palette);
         renderChartPoids(data.poids_par_livraison);
         renderChartColis(data.colis_par_livraison);
         renderChartEvolution(data.evolution_quotidienne);
+        renderChartZone(data.par_zone || []);
+        renderChartChauffeur(data.par_chauffeur || []);
         renderChartSocietes(data.top_societes);
 
-        // Peupler le filtre livraison (une seule fois)
-        if (filterLivraison.options.length <= 1 && data.livraisons) {
+        // Peupler le filtre livraison (mis a jour a chaque chargement)
+        if (data.livraisons) {
+            const currentVal = filterLivraison.value;
+            while (filterLivraison.options.length > 1) filterLivraison.remove(1);
             data.livraisons.forEach(l => {
                 const opt = document.createElement('option');
                 opt.value = l;
                 opt.textContent = l;
                 filterLivraison.appendChild(opt);
             });
+            filterLivraison.value = currentVal;
         }
 
     } catch (err) {
@@ -131,12 +149,16 @@ async function loadStats() {
 }
 
 // ===== Update totaux cards =====
-function updateTotaux(totaux) {
+function updateTotaux(totaux, efficacite) {
     document.getElementById('totalExtractions').textContent = totaux.nb_extractions.toLocaleString();
     document.getElementById('totalEnlevements').textContent = totaux.nb_enlevements.toLocaleString();
     document.getElementById('totalPalettes').textContent = Math.round(totaux.palettes_total).toLocaleString();
     document.getElementById('totalPoids').textContent = Math.round(totaux.poids_total).toLocaleString();
     document.getElementById('totalColis').textContent = Math.round(totaux.colis_total).toLocaleString();
+    if (efficacite) {
+        document.getElementById('avgPalettes').textContent = efficacite.moy_palettes;
+        document.getElementById('avgPoids').textContent = efficacite.moy_poids;
+    }
 }
 
 // ===== Chart helpers =====
@@ -278,6 +300,25 @@ function renderChartEvolution(data) {
             }
         }
     });
+}
+
+function renderChartZone(data) {
+    const labels = data.map(d => d.zone);
+    const values = data.map(d => d.nb);
+    const zoneColors = ['#4493f8', '#3fb950', '#e3952d', '#a371f7', '#f85149', '#8b949e', '#da3633', '#56d364', '#d2a8ff', '#79c0ff'];
+    createDoughnut('chartZone', 'zone', labels, values, (_, i) => zoneColors[i % zoneColors.length]);
+}
+
+function renderChartChauffeur(data) {
+    if (!data.length) {
+        destroyChart('chauffeur');
+        const ctx = document.getElementById('chartChauffeur').getContext('2d');
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        return;
+    }
+    const labels = data.map(d => d.chauffeur);
+    const values = data.map(d => d.nb);
+    createBar('chartChauffeur', 'chauffeur', labels, values, () => '#3fb950', true);
 }
 
 function renderChartSocietes(data) {

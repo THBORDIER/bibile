@@ -9,6 +9,7 @@
 <div class="settings-tabs">
     <button class="settings-tab active" data-tab="connexion">Connexion externe</button>
     <button class="settings-tab" data-tab="drakkar">Connexion Drakkar</button>
+    <button class="settings-tab" data-tab="miseajour">Mise a jour</button>
 </div>
 
 <!-- Tab: Connexion externe -->
@@ -130,6 +131,20 @@
         </div>
 
         <div id="drakkarResult" class="alert hidden"></div>
+    </div>
+</div>
+<!-- Tab: Mise a jour -->
+<div id="tabMiseajour" class="settings-panel hidden">
+    <div class="card">
+        <div class="card-header">
+            <h3>Systeme de mise a jour</h3>
+            <button id="btnCheckUpdate" class="btn btn-sm btn-primary">Verifier maintenant</button>
+        </div>
+        <div class="settings-form">
+            <div id="updateDiagResult" class="update-diag">
+                <p class="text-muted">Cliquez sur "Verifier maintenant" pour diagnostiquer le systeme de mise a jour.</p>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

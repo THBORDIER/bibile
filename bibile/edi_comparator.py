@@ -74,18 +74,26 @@ def _score_match(pdf_enl, edi_ship):
             score += name_score
             matched_by.append('Nom')
 
-    # 2. Ville (25 pts max)
+    # 2. Ville (25 pts max) — teste sold_by_city ET delivery_city
     pdf_ville = _normalize(pdf_enl.get('ville', ''))
     edi_ville = _normalize(edi_ship.get('sold_by_city', ''))
-    if pdf_ville and edi_ville:
-        if pdf_ville == edi_ville:
-            score += 25
-            matched_by.append('Ville')
-        else:
-            ville_ratio = difflib.SequenceMatcher(None, pdf_ville, edi_ville).ratio()
-            if ville_ratio >= 0.8:
-                score += 15
-                matched_by.append('Ville~')
+    edi_delivery_city = _normalize(edi_ship.get('delivery_city', ''))
+    best_ville_score = 0
+    best_ville_label = ''
+    for candidate, label in [(edi_ville, 'Ville'), (edi_delivery_city, 'VilleLiv')]:
+        if pdf_ville and candidate:
+            if pdf_ville == candidate:
+                if 25 > best_ville_score:
+                    best_ville_score = 25
+                    best_ville_label = label
+            else:
+                ville_ratio = difflib.SequenceMatcher(None, pdf_ville, candidate).ratio()
+                if ville_ratio >= 0.8 and 15 > best_ville_score:
+                    best_ville_score = 15
+                    best_ville_label = label + '~'
+    if best_ville_score > 0:
+        score += best_ville_score
+        matched_by.append(best_ville_label)
 
     # 3. Poids (15 pts max) — proximite relative
     pdf_poids = float(pdf_enl.get('poids_total', 0) or 0)
@@ -115,6 +123,19 @@ def _score_match(pdf_enl, edi_ship):
             matched_by.append('Ref')
             break
 
+    # 5. Delivery name vs livraison PDF (10 pts bonus)
+    pdf_livraison = _normalize(pdf_enl.get('livraison', ''))
+    edi_delivery = _normalize(edi_ship.get('delivery_name', ''))
+    if pdf_livraison and edi_delivery:
+        if pdf_livraison in edi_delivery or edi_delivery in pdf_livraison:
+            score += 10
+            matched_by.append('Dest')
+        else:
+            deliv_ratio = difflib.SequenceMatcher(None, pdf_livraison, edi_delivery).ratio()
+            if deliv_ratio >= 0.6:
+                score += 5
+                matched_by.append('Dest~')
+
     return score, matched_by
 
 
@@ -133,11 +154,19 @@ def compare_edi_pdf(edi_shipments, pdf_enlevements):
 
     # Calculer tous les scores
     all_scores = []
+    best_rejected = []  # Meilleurs scores sous le seuil (diagnostic)
     for i, pdf in enumerate(pdf_agg):
         for j, edi in enumerate(edi_shipments):
             score, matched_by = _score_match(pdf, edi)
-            if score >= 40:
+            if score >= 20:
                 all_scores.append((score, matched_by, i, j))
+            elif score > 0:
+                best_rejected.append({
+                    'pdf_societe': pdf.get('societe', ''),
+                    'edi_sold_by': edi.get('sold_by', ''),
+                    'score': score,
+                    'matched_by': ' + '.join(matched_by) if matched_by else '-',
+                })
 
     # Tri decroissant par score (greedy best-first)
     all_scores.sort(key=lambda x: -x[0])
@@ -213,6 +242,9 @@ def compare_edi_pdf(edi_shipments, pdf_enlevements):
                 'shipment_id': s.get('shipment_id', ''),
                 'transaction_ref': s.get('transaction_ref', ''),
                 'sold_by': s.get('sold_by', ''),
+                'sold_by_city': s.get('sold_by_city', ''),
+                'delivery_city': s.get('delivery_city', ''),
+                'delivery_name': s.get('delivery_name', ''),
                 'total_colis': s.get('total_colis', 0),
                 'total_poids': s.get('poids_total', 0),
                 'total_palettes': s.get('total_palettes', 0),
@@ -231,9 +263,14 @@ def compare_edi_pdf(edi_shipments, pdf_enlevements):
         'match_pct': round(100 * len(matches) / total_pdf) if total_pdf > 0 else 0,
     }
 
+    # Top 5 des paires rejetees (pour diagnostic)
+    best_rejected.sort(key=lambda x: -x['score'])
+    best_rejected = best_rejected[:5]
+
     return {
         'matches': matches,
         'pdf_only': pdf_only,
         'edi_only': edi_only,
         'stats': stats,
+        'best_rejected': best_rejected,
     }
