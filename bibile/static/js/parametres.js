@@ -22,6 +22,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // === MISE A JOUR ===
     document.getElementById('btnCheckUpdate').addEventListener('click', diagUpdate);
 
+    // === MAINTENANCE ===
+    document.getElementById('btnPurgeDb').addEventListener('click', () => {
+        document.getElementById('purgeModal').style.display = 'flex';
+    });
+    document.getElementById('btnPurgeCancel').addEventListener('click', () => {
+        document.getElementById('purgeModal').style.display = 'none';
+    });
+    document.getElementById('btnPurgeConfirm1').addEventListener('click', () => {
+        document.getElementById('purgeModal').style.display = 'none';
+        document.getElementById('purgeModalFinal').style.display = 'flex';
+        document.getElementById('purgeConfirmInput').value = '';
+        document.getElementById('btnPurgeFinal').disabled = true;
+    });
+    document.getElementById('purgeConfirmInput').addEventListener('input', (e) => {
+        document.getElementById('btnPurgeFinal').disabled = e.target.value.trim() !== 'SUPPRIMER';
+    });
+    document.getElementById('btnPurgeCancelFinal').addEventListener('click', () => {
+        document.getElementById('purgeModalFinal').style.display = 'none';
+    });
+    document.getElementById('btnPurgeFinal').addEventListener('click', executePurge);
+
     // === RECHERCHE ===
     document.getElementById('searchExtVehicles').addEventListener('input', filterExtVehicles);
 
@@ -348,6 +369,47 @@ async function diagUpdate() {
             </table>`;
     } catch (e) {
         container.innerHTML = `<div class="alert alert-danger">Erreur reseau: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+
+// ===== MAINTENANCE (PURGE) =====
+
+async function executePurge() {
+    const btn = document.getElementById('btnPurgeFinal');
+    btn.disabled = true;
+    btn.textContent = 'Suppression en cours...';
+    btn.classList.remove('purge-blink');
+
+    try {
+        const resp = await fetch('/api/database/purge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmation: 'SUPPRIMER TOUTES LES DONNEES' }),
+        });
+        const data = await resp.json();
+        document.getElementById('purgeModalFinal').style.display = 'none';
+
+        const result = document.getElementById('purgeResult');
+        result.classList.remove('hidden', 'alert-danger', 'alert-info');
+
+        if (data.ok) {
+            result.classList.add('alert-success');
+            const details = Object.entries(data.deleted || {})
+                .filter(([, v]) => v > 0)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(', ');
+            result.textContent = `Base videe (${data.total} enregistrements supprimes). ${details}`;
+        } else {
+            result.classList.add('alert-danger');
+            result.textContent = `Erreur: ${data.erreur || 'Inconnue'}`;
+        }
+    } catch (e) {
+        document.getElementById('purgeModalFinal').style.display = 'none';
+        const result = document.getElementById('purgeResult');
+        result.classList.remove('hidden', 'alert-info');
+        result.classList.add('alert-danger');
+        result.textContent = `Erreur: ${e.message}`;
     }
 }
 

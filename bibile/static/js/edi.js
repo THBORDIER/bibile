@@ -86,6 +86,17 @@ async function doCompare() {
 
         document.getElementById('ediStats').classList.remove('hidden');
 
+        // Debug info (date ranges)
+        const dbg = data.debug_info;
+        if (dbg) {
+            const el = document.getElementById('ediDebugInfo');
+            if (el) {
+                const dates = dbg.edi_pickup_dates ? dbg.edi_pickup_dates.join(', ') : '-';
+                el.innerHTML = `PDF: ${dbg.nb_pdf_enlevements} enl. (${esc(dbg.pdf_date_range)}) | EDI: ${dbg.nb_edi_shipments}/${dbg.nb_edi_total_fetched} (pickup: ${esc(dates)})`;
+                el.classList.remove('hidden');
+            }
+        }
+
         // Tableau
         const tbody = document.getElementById('ediResultBody');
         tbody.innerHTML = '';

@@ -10,6 +10,7 @@
     <button class="settings-tab active" data-tab="connexion">Connexion externe</button>
     <button class="settings-tab" data-tab="drakkar">Connexion Drakkar</button>
     <button class="settings-tab" data-tab="miseajour">Mise a jour</button>
+    <button class="settings-tab" data-tab="maintenance">Maintenance</button>
 </div>
 
 <!-- Tab: Connexion externe -->
@@ -144,6 +145,72 @@
             <div id="updateDiagResult" class="update-diag">
                 <p class="text-muted">Cliquez sur "Verifier maintenant" pour diagnostiquer le systeme de mise a jour.</p>
             </div>
+        </div>
+    </div>
+</div>
+<!-- Tab: Maintenance -->
+<div id="tabMaintenance" class="settings-panel hidden">
+    <div class="card">
+        <div class="card-header">
+            <h3>Maintenance de la base de donnees</h3>
+        </div>
+        <div class="settings-form">
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                Actions de maintenance sur la base de donnees locale SQLite.
+                Ces actions sont irreversibles.
+            </p>
+            <button id="btnPurgeDb" class="btn" style="background: #dc3545; color: white; font-weight: 600;">
+                Vider toute la base de donnees
+            </button>
+            <div id="purgeResult" class="alert hidden" style="margin-top: 12px;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal purge double confirmation -->
+<div id="purgeModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content" style="max-width: 480px;">
+        <h3 style="color: #dc3545;">Vider la base de donnees</h3>
+        <p style="margin: 12px 0;">Cette action va <strong>supprimer definitivement</strong> :</p>
+        <ul style="text-align: left; margin: 0 auto 16px; max-width: 320px; color: var(--text-secondary); font-size: 14px;">
+            <li>Toutes les extractions et enlevements</li>
+            <li>Toutes les tournees</li>
+            <li>Les messages EDI caches</li>
+            <li>Les donnees de transport</li>
+        </ul>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Les configurations (connexions, zones, chauffeurs, vehicules, modeles) seront conservees.
+        </p>
+        <div class="modal-actions" style="flex-direction: column; gap: 12px;">
+            <button id="btnPurgeConfirm1" class="btn purge-danger-btn">
+                Je comprends, continuer
+            </button>
+            <button id="btnPurgeCancel" class="btn btn-secondary">Annuler</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal purge confirmation finale -->
+<div id="purgeModalFinal" class="modal-overlay" style="display:none;">
+    <div class="modal-content" style="max-width: 480px;">
+        <div class="purge-warning-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:48px;height:48px;color:#dc3545;">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+        </div>
+        <h3 class="purge-blink" style="color: #dc3545; font-size: 20px;">DERNIERE CHANCE</h3>
+        <p style="margin: 12px 0; font-weight: 600;">Toutes les donnees seront perdues definitivement.</p>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Tapez <strong style="color:#dc3545;">SUPPRIMER</strong> pour confirmer :
+        </p>
+        <input type="text" id="purgeConfirmInput" class="form-input" placeholder="Tapez SUPPRIMER ici" style="text-align:center; font-weight:600; max-width:280px; margin:0 auto 16px;">
+        <div class="modal-actions" style="flex-direction: column; gap: 12px;">
+            <button id="btnPurgeFinal" class="btn purge-danger-btn purge-blink" disabled>
+                SUPPRIMER TOUTES LES DONNEES
+            </button>
+            <button id="btnPurgeCancelFinal" class="btn btn-secondary">Annuler</button>
         </div>
     </div>
 </div>

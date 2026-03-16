@@ -323,12 +323,15 @@ def get_unassigned_enlevements(db_path, extraction_id=None, date=None):
         """, (extraction_id,)).fetchall()
     elif date:
         # CTE pour ne garder que l'enlèvement le plus récent par (num_enlevement, societe)
+        # Filtre par date_enlevement (date de pickup réelle) si disponible,
+        # sinon fallback sur date_creation (date du document)
         rows = conn.execute("""
             WITH latest AS (
                 SELECT MAX(e2.id) as latest_id
                 FROM enlevements e2
                 JOIN extractions ex2 ON ex2.id = e2.extraction_id
-                WHERE DATE(ex2.date_creation) = ?
+                WHERE (e2.date_enlevement IS NOT NULL AND e2.date_enlevement = ?)
+                   OR (e2.date_enlevement IS NULL AND DATE(ex2.date_creation) = ?)
                 GROUP BY e2.num_enlevement, e2.societe
             )
             SELECT e.*, vzm.lat, vzm.lon FROM enlevements e
@@ -336,7 +339,7 @@ def get_unassigned_enlevements(db_path, extraction_id=None, date=None):
             WHERE e.id IN (SELECT latest_id FROM latest)
             AND e.id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
             ORDER BY e.num_enlevement
-        """, (date,)).fetchall()
+        """, (date, date)).fetchall()
     else:
         rows = conn.execute("""
             WITH latest AS (

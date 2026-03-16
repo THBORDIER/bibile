@@ -75,7 +75,8 @@ def init_db(db_path):
             poids_total REAL DEFAULT 0,
             nb_colis REAL DEFAULT 0,
             livraison TEXT,
-            telephone TEXT
+            telephone TEXT,
+            date_enlevement TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_enlevements_extraction ON enlevements(extraction_id);
@@ -273,6 +274,14 @@ def init_db(db_path):
             cursor.execute("ALTER TABLE tournees ADD COLUMN couleur TEXT")
         except Exception:
             pass
+    # Migration: ajouter date_enlevement sur enlevements
+    try:
+        cursor.execute("SELECT date_enlevement FROM enlevements LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE enlevements ADD COLUMN date_enlevement TEXT")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
@@ -335,7 +344,8 @@ def update_enlevements(db_path, lignes_tableau, duplicates):
         conn.execute("""
             UPDATE enlevements SET
                 reference = ?, ville = ?, nb_palettes = ?, type_palettes = ?,
-                poids_total = ?, nb_colis = ?, livraison = ?, telephone = ?
+                poids_total = ?, nb_colis = ?, livraison = ?, telephone = ?,
+                date_enlevement = ?
             WHERE id = ?
         """, (
             ligne.get('NOTRE RÉFÉRENCE') or ligne.get('reference', ''),
@@ -346,6 +356,7 @@ def update_enlevements(db_path, lignes_tableau, duplicates):
             ligne.get('NOMBRE DE COLIS') or ligne.get('nb_colis', 0),
             ligne.get('LIVRAISON ASSOCIÉE') or ligne.get('livraison', ''),
             ligne.get('TÉLÉPHONE') or ligne.get('telephone', ''),
+            ligne.get('DATE_ENLEVEMENT') or ligne.get('date_enlevement'),
             enlevement_id,
         ))
         updated += 1
@@ -381,8 +392,9 @@ def save_extraction(db_path, nom_fichier, date_creation, lignes_tableau, log_con
             conn.execute(
                 """INSERT INTO enlevements
                    (extraction_id, num_enlevement, reference, societe, ville,
-                    nb_palettes, type_palettes, poids_total, nb_colis, livraison, telephone)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nb_palettes, type_palettes, poids_total, nb_colis, livraison, telephone,
+                    date_enlevement)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     extraction_id,
                     ligne.get('N° ENLÈVEMENT') or ligne.get('num_enlevement'),
@@ -395,6 +407,7 @@ def save_extraction(db_path, nom_fichier, date_creation, lignes_tableau, log_con
                     ligne.get('NOMBRE DE COLIS') or ligne.get('nb_colis', 0),
                     ligne.get('LIVRAISON ASSOCIÉE') or ligne.get('livraison', ''),
                     ligne.get('TÉLÉPHONE') or ligne.get('telephone', ''),
+                    ligne.get('DATE_ENLEVEMENT') or ligne.get('date_enlevement'),
                 )
             )
 
@@ -560,14 +573,15 @@ def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zo
     conn = get_db(db_path)
 
     # Clause WHERE pour le filtre de date
+    # Utilise date_enlevement (date reelle) avec fallback sur date_creation
     where_clauses = []
     params = []
     if date_debut:
-        where_clauses.append("e.date_creation >= ?")
+        where_clauses.append("COALESCE(en.date_enlevement, DATE(e.date_creation)) >= ?")
         params.append(date_debut)
     if date_fin:
-        where_clauses.append("e.date_creation <= ?")
-        params.append(date_fin + "T23:59:59" if len(date_fin) == 10 else date_fin)
+        where_clauses.append("COALESCE(en.date_enlevement, DATE(e.date_creation)) <= ?")
+        params.append(date_fin)
     if livraison:
         where_clauses.append("en.livraison = ?")
         params.append(livraison)
@@ -576,6 +590,13 @@ def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zo
         params.append(zone)
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+    # Deduplication : ne garder que la derniere version de chaque enlevement
+    # (par num_enlevement + societe, prendre le MAX id)
+    dedup_clause = """en.id IN (
+        SELECT MAX(e2.id) FROM enlevements e2
+        GROUP BY e2.num_enlevement, e2.societe, COALESCE(e2.date_enlevement, 'old')
+    )"""
+    where_sql = dedup_clause + " AND " + where_sql
 
     # Totaux globaux
     row = conn.execute(f"""
@@ -638,16 +659,16 @@ def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zo
     """, params).fetchall()
     par_type_palette = {r['type_palettes']: r['total'] for r in rows}
 
-    # Evolution quotidienne
+    # Evolution quotidienne (par date d'enlevement reelle)
     rows = conn.execute(f"""
         SELECT
-            DATE(e.date_creation) as jour,
+            COALESCE(en.date_enlevement, DATE(e.date_creation)) as jour,
             COUNT(DISTINCT en.num_enlevement) as nb_enlevements,
             COALESCE(SUM(en.nb_palettes), 0) as nb_palettes
         FROM extractions e
         JOIN enlevements en ON en.extraction_id = e.id
         WHERE {where_sql}
-        GROUP BY DATE(e.date_creation)
+        GROUP BY COALESCE(en.date_enlevement, DATE(e.date_creation))
         ORDER BY jour
     """, params).fetchall()
     evolution_quotidienne = [
@@ -707,15 +728,18 @@ def get_statistiques(db_path, date_debut=None, date_fin=None, livraison=None, zo
     }
 
     # Liste distincte des livraisons (filtree par periode et zone, pas par livraison)
-    livr_clauses = [c for c in where_clauses if 'livraison' not in c]
+    livr_clauses = [dedup_clause]
     livr_params = []
     if date_debut:
+        livr_clauses.append("COALESCE(en.date_enlevement, DATE(e.date_creation)) >= ?")
         livr_params.append(date_debut)
     if date_fin:
-        livr_params.append(date_fin + "T23:59:59" if len(date_fin) == 10 else date_fin)
+        livr_clauses.append("COALESCE(en.date_enlevement, DATE(e.date_creation)) <= ?")
+        livr_params.append(date_fin)
     if zone:
+        livr_clauses.append("EXISTS (SELECT 1 FROM ville_zone_mapping vzm JOIN zones z ON z.id = vzm.zone_id WHERE UPPER(TRIM(vzm.ville)) = UPPER(TRIM(en.ville)) AND z.nom = ?)")
         livr_params.append(zone)
-    livr_where = " AND ".join(livr_clauses) if livr_clauses else "1=1"
+    livr_where = " AND ".join(livr_clauses)
     rows = conn.execute(f"""
         SELECT DISTINCT en.livraison
         FROM extractions e

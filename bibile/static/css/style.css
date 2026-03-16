@@ -2323,3 +2323,34 @@ kbd {
 
 /* Export button in card header */
 .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
+
+/* ===== Purge danger button + blink ===== */
+.purge-danger-btn {
+    background: #dc3545 !important;
+    color: white !important;
+    font-weight: 700;
+    border: 2px solid #dc3545;
+    padding: 10px 24px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.purge-danger-btn:hover {
+    background: #c82333 !important;
+    box-shadow: 0 0 16px rgba(220, 53, 69, 0.5);
+}
+.purge-danger-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+@keyframes purge-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.purge-blink {
+    animation: purge-blink 1s ease-in-out infinite;
+}
+.purge-warning-icon {
+    margin-bottom: 12px;
+}

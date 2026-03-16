@@ -36,6 +36,8 @@ from datetime import datetime
 import json
 from pathlib import Path
 from openpyxl.styles import Font, PatternFill, Alignment
+import threading
+import logging
 
 # Flask : adapter les chemins pour le mode PyInstaller
 BASE_DIR = Path(__file__).parent
@@ -198,7 +200,7 @@ def extraire_totaux_livraisons(texte):
             destinataire = ""
             for k in range(i+1, min(i+10, len(lignes))):
                 if 'Au total:' in lignes[k]:
-                    # Extraire les totaux
+                    # Extraire les totaux — format une ligne ou multi-lignes (PyMuPDF)
                     match_total = re.search(r'Au total:\s*(\d+)\s*Palettes?\s+([0-9\.]+)\s*kg.*?([0-9\.]+)\s*Colis', lignes[k])
                     if match_total:
                         totaux_livraisons[num_livraison] = {
@@ -206,43 +208,70 @@ def extraire_totaux_livraisons(texte):
                             'poids': int(match_total.group(2).replace('.', '')),
                             'colis': int(match_total.group(3).replace('.', ''))
                         }
+                    else:
+                        # Format PyMuPDF: "Au total: N Palettes" puis kg/Colis sur lignes suivantes
+                        mp = re.search(r'Au total:\s*(\d+)\s*Palettes?', lignes[k])
+                        palettes_total = int(mp.group(1)) if mp else 0
+                        poids_total = 0
+                        colis_total = 0
+                        for m in range(k + 1, min(k + 6, len(lignes))):
+                            lm = lignes[m].strip()
+                            if not poids_total:
+                                mw = re.search(r'^([0-9\.]+)\s*kg', lm, re.IGNORECASE)
+                                if mw:
+                                    poids_total = int(mw.group(1).replace('.', ''))
+                            if not colis_total:
+                                mc = re.search(r'^([0-9\.]+)\s*Colis', lm, re.IGNORECASE)
+                                if mc:
+                                    colis_total = int(mc.group(1).replace('.', ''))
+                            if poids_total and colis_total:
+                                break
+                        if palettes_total:
+                            totaux_livraisons[num_livraison] = {
+                                'palettes': palettes_total,
+                                'poids': poids_total,
+                                'colis': colis_total
+                            }
 
-                    # Ligne suivante = destinataire (ex: "Brevet Châtenoy-le-Royal")
-                    if k + 1 < len(lignes):
-                        dest_ligne = lignes[k + 1].strip()
-                        if dest_ligne:
-                            nom_destinataire = ""
+                    # Chercher le destinataire — sauter les lignes kg/Colis/m3/date
+                    # pour trouver la première ligne "nom" (pas un chiffre, pas vide)
+                    for dk in range(k + 1, min(k + 10, len(lignes))):
+                        dest_ligne = lignes[dk].strip()
+                        if not dest_ligne:
+                            continue
+                        # Sauter les lignes techniques (poids, colis, m3, date)
+                        if re.match(r'^[0-9\.]+\s*(kg|Colis|m3)', dest_ligne, re.IGNORECASE):
+                            continue
+                        if re.match(r'^\d{2}/\w', dest_ligne):  # date
+                            continue
+                        if re.match(r'^\d{5}\s', dest_ligne):  # code postal
+                            continue
 
-                            # Si c'est une ligne Hillebrand, extraire le mot-clé (Transit, Chevrolet, Storage)
-                            if dest_ligne.startswith('Hillebrand'):
-                                # Chercher des mots-clés spécifiques
-                                mots = dest_ligne.split()
-                                for mot in mots:
-                                    mot_upper = mot.upper()
-                                    # Mots-clés significatifs pour les livraisons internes
-                                    if mot_upper in ['TRANSIT', 'CHEVROLET', 'STORAGE', 'GORI']:
-                                        if mot_upper == 'CHEVROLET':
-                                            nom_destinataire = 'CHEVROLET'
-                                            break
-                                        elif mot_upper == 'TRANSIT':
-                                            nom_destinataire = 'TRANSIT'
-                                            break
-                                        elif mot_upper == 'STORAGE':
-                                            nom_destinataire = 'STORAGE'
-                                            break
+                        # C'est le destinataire
+                        nom_destinataire = ""
+                        if dest_ligne.startswith('Hillebrand'):
+                            mots = dest_ligne.split()
+                            for mot in mots:
+                                mot_upper = mot.upper()
+                                if mot_upper in ['TRANSIT', 'CHEVROLET', 'STORAGE', 'GORI']:
+                                    if mot_upper == 'CHEVROLET':
+                                        nom_destinataire = 'CHEVROLET'
+                                    elif mot_upper == 'TRANSIT':
+                                        nom_destinataire = 'TRANSIT'
+                                    elif mot_upper == 'STORAGE':
+                                        nom_destinataire = 'STORAGE'
+                                    break
+                            if not nom_destinataire:
+                                nom_destinataire = 'HILLEBRAND'
+                        else:
+                            premier_mot = dest_ligne.split()[0].upper() if dest_ligne.split() else ""
+                            if premier_mot:
+                                nom_destinataire = premier_mot
 
-                                # Si aucun mot-clé trouvé, utiliser "HILLEBRAND"
-                                if not nom_destinataire:
-                                    nom_destinataire = 'HILLEBRAND'
-                            else:
-                                # Sinon, prendre le premier mot (ex: "Brevet Châtenoy-le-Royal" → "BREVET")
-                                premier_mot = dest_ligne.split()[0].upper() if dest_ligne.split() else ""
-                                if premier_mot:
-                                    nom_destinataire = premier_mot
-
-                            if nom_destinataire:
-                                mapping_destinataires[num_livraison] = nom_destinataire
-                                destinataire = nom_destinataire
+                        if nom_destinataire:
+                            mapping_destinataires[num_livraison] = nom_destinataire
+                            destinataire = nom_destinataire
+                        break
                     break
 
         i += 1
@@ -349,6 +378,7 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
         'telephone': '',
         'poids_total': '',
         'colis_total': '',
+        'date_enlevement': '',
         'index_fin': index_debut
     }
     palettes = []
@@ -356,26 +386,77 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
     # Trouver la fin de cet enlèvement (= début du prochain enlèvement)
     index_fin = len(lignes)
     for k in range(index_debut + 1, len(lignes)):
-        if re.match(r'^Enlèvement\s+\d+\s+', lignes[k]):
+        if re.match(r'^Enlèvement\s+\d+', lignes[k]):
             index_fin = k
             break
 
     infos['index_fin'] = index_fin
 
     # ÉTAPE 1: Extraire numéro + société sur la ligne "Enlèvement X ..."
+    # Format copier-coller: "Enlèvement 1 Domaine de La Choupette" (tout sur une ligne)
+    # Format PyMuPDF:       "Enlèvement 1\nDomaine de La Choupette" (société sur la ligne suivante)
     ligne_enlevement = lignes[index_debut]
     match = re.search(r'Enlèvement\s+(\d+)\s+(.+)', ligne_enlevement)
     if match:
         infos['num_enlevement'] = match.group(1)
         infos['societe'] = match.group(2).strip().upper()
+    else:
+        # Format PyMuPDF: numéro seul sur la ligne, société sur la suivante
+        match_num = re.search(r'Enlèvement\s+(\d+)', ligne_enlevement)
+        if match_num:
+            infos['num_enlevement'] = match_num.group(1)
+            # Chercher la société sur les lignes suivantes (avant "Au total" ou code postal)
+            for k in range(index_debut + 1, min(index_debut + 5, index_fin)):
+                next_line = lignes[k].strip()
+                if not next_line:
+                    continue
+                if 'Au total' in next_line or re.match(r'^\d{5}\s', next_line):
+                    break
+                if re.match(r'^\d{2}/\w', next_line):  # ligne de date
+                    break
+                # Première ligne non-vide et non-technique = société
+                infos['societe'] = next_line.upper()
+                break
 
     # ÉTAPE 1b: Chercher "Au total:" pour infos globales
+    # Format copier-coller: "Au total: 2 Palettes 1.800 kg 200 Colis" (une ligne)
+    # Format PyMuPDF:       "Au total: 1 Palette\n846 kg\n \n50 Colis" (multi-lignes)
     for k in range(index_debut, min(index_debut + 10, index_fin)):
         if 'Au total:' in lignes[k]:
+            # Essayer le format une ligne d'abord
             match_total = re.search(r'Au total:.*?([0-9\.]+)\s*kg.*?([0-9\.]+)\s*Colis', lignes[k])
             if match_total:
                 infos['poids_total'] = match_total.group(1).replace('.', '')
                 infos['colis_total'] = match_total.group(2).replace('.', '')
+            else:
+                # Format PyMuPDF: poids et colis sur les lignes suivantes
+                for m in range(k + 1, min(k + 6, index_fin)):
+                    lm = lignes[m].strip()
+                    if not infos['poids_total']:
+                        mp = re.search(r'([0-9\.]+)\s*kg', lm, re.IGNORECASE)
+                        if mp:
+                            infos['poids_total'] = mp.group(1).replace('.', '')
+                    if not infos['colis_total']:
+                        mc = re.search(r'(\d+)\s*Colis', lm, re.IGNORECASE)
+                        if mc:
+                            infos['colis_total'] = mc.group(1)
+                    if infos['poids_total'] and infos['colis_total']:
+                        break
+            break
+
+    # ÉTAPE 1c: Extraire la date d'enlèvement (ex: "16/mars/2026 00:00" ou "09/févr./2026 00:00")
+    for k in range(index_debut, min(index_debut + 15, index_fin)):
+        match_date = re.match(r'^(\d{1,2})/([^/]+)/(\d{4})\s+\d{2}:\d{2}', lignes[k].strip())
+        if match_date:
+            jour = int(match_date.group(1))
+            mois_str = match_date.group(2).strip().rstrip('.').lower()
+            annee = int(match_date.group(3))
+            mois = _MOIS_FR.get(mois_str)
+            if mois:
+                try:
+                    infos['date_enlevement'] = f'{annee:04d}-{mois:02d}-{jour:02d}'
+                except (ValueError, TypeError):
+                    pass
             break
 
     # ÉTAPE 2: Chercher VILLE (mot-clé: code postal français = 5 chiffres seuls + ville)
@@ -568,7 +649,8 @@ def parser_texte(texte, log_file):
                     'POIDS TOTAL (KG)': palette['poids'],
                     'NOMBRE DE COLIS': palette['colis'],
                     'LIVRAISON ASSOCIÉE': palette['livraison'],
-                    'TÉLÉPHONE': infos['telephone']
+                    'TÉLÉPHONE': infos['telephone'],
+                    'DATE_ENLEVEMENT': infos.get('date_enlevement', ''),
                 }
 
                 lignes_tableau.append(ligne_data)
@@ -1004,6 +1086,52 @@ def generer_confirmer():
 
     except Exception as e:
         import traceback
+        return jsonify({'erreur': f'Erreur: {str(e)}'}), 500
+
+
+@app.route('/sauvegarder', methods=['POST'])
+def sauvegarder():
+    """Sauvegarde les enlèvements en BDD sans générer d'Excel."""
+    try:
+        data = request.get_json()
+        texte = data.get('texte', '').strip()
+
+        if not texte:
+            return jsonify({'erreur': 'Aucun texte fourni'}), 400
+
+        lignes_tableau, erreurs_controle, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc = _parse_and_log(texte)
+
+        if len(lignes_tableau) == 0:
+            return jsonify({'erreur': 'Aucun enlèvement trouvé dans le texte.'}), 400
+
+        extraction_date = date_doc or datetime.now()
+
+        # Vérifier les doublons et les écraser automatiquement
+        duplicates = find_duplicates(DB_PATH, lignes_tableau)
+        nb_updated = 0
+        if duplicates:
+            nb_updated = update_enlevements(DB_PATH, lignes_tableau, duplicates)
+
+        # Sauvegarder les nouveaux (non-doublons)
+        dup_keys = set(duplicates.keys()) if duplicates else set()
+        nouveaux = [l for l in lignes_tableau if (l.get('N° ENLÈVEMENT'), l.get('SOCIÉTÉ / DOMAINE', '')) not in dup_keys]
+
+        nb_saved = 0
+        if nouveaux:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nom_save = f"Import_{timestamp}"
+            save_extraction(DB_PATH, nom_save, extraction_date, nouveaux, log_contenu)
+            nb_saved = len(nouveaux)
+
+        return jsonify({
+            'ok': True,
+            'nb_total': len(lignes_tableau),
+            'nb_saved': nb_saved,
+            'nb_updated': nb_updated,
+            'erreurs_controle': erreurs_controle,
+        })
+
+    except Exception as e:
         return jsonify({'erreur': f'Erreur: {str(e)}'}), 500
 
 
@@ -1588,6 +1716,90 @@ def init_sync_manager():
     sync_manager.start()
 
 
+# ===== SYNC EDI PERIODIQUE =====
+
+_edi_cache = {
+    'shipments': [],           # tous les shipments parses
+    'last_sync': None,         # datetime du dernier fetch
+    'date_from': None,         # plage couverte
+    'date_to': None,
+    'error': None,
+}
+_EDI_SYNC_INTERVAL = 15 * 60  # 15 minutes
+
+
+def _edi_sync_worker():
+    """Thread daemon : rafraichit le cache EDI toutes les 15 minutes."""
+    import time
+    logger = logging.getLogger('bibile.edi_sync')
+    while True:
+        try:
+            config = get_drakkar_config(DB_PATH)
+            if config:
+                from datetime import timedelta
+                now = datetime.now()
+                date_from = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+                date_to = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+                shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+                _edi_cache['shipments'] = shipments
+                _edi_cache['last_sync'] = now.isoformat()
+                _edi_cache['date_from'] = date_from
+                _edi_cache['date_to'] = date_to
+                _edi_cache['error'] = None
+                logger.info(f"EDI sync: {len(shipments)} shipments (J-7)")
+            else:
+                _edi_cache['error'] = 'Drakkar non configure'
+        except Exception as e:
+            _edi_cache['error'] = str(e)
+            logger.warning(f"EDI sync error: {e}")
+        time.sleep(_EDI_SYNC_INTERVAL)
+
+
+def start_edi_sync():
+    """Demarre le thread de sync EDI periodique."""
+    t = threading.Thread(target=_edi_sync_worker, daemon=True, name='edi-sync')
+    t.start()
+
+
+# Demarrer automatiquement au chargement du module
+start_edi_sync()
+
+
+@app.route('/api/edi/sync-status')
+def api_edi_sync_status():
+    """Statut du cache EDI periodique."""
+    return jsonify({
+        'last_sync': _edi_cache['last_sync'],
+        'nb_shipments': len(_edi_cache['shipments']),
+        'date_from': _edi_cache['date_from'],
+        'date_to': _edi_cache['date_to'],
+        'error': _edi_cache['error'],
+    })
+
+
+@app.route('/api/edi/sync-now', methods=['POST'])
+def api_edi_sync_now():
+    """Force un rafraichissement immediat du cache EDI."""
+    try:
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Drakkar non configure'}), 400
+        from datetime import timedelta
+        now = datetime.now()
+        date_from = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+        date_to = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+        shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+        _edi_cache['shipments'] = shipments
+        _edi_cache['last_sync'] = now.isoformat()
+        _edi_cache['date_from'] = date_from
+        _edi_cache['date_to'] = date_to
+        _edi_cache['error'] = None
+        return jsonify({'ok': True, 'nb_shipments': len(shipments)})
+    except Exception as e:
+        _edi_cache['error'] = str(e)
+        return jsonify({'erreur': str(e)}), 500
+
+
 # ===== MISE A JOUR =====
 
 @app.route('/api/update/check')
@@ -1759,48 +1971,96 @@ def api_drakkar_compare():
         if not date:
             return jsonify({'erreur': 'Parametre date requis'}), 400
 
-        # Recuperer les EDI depuis Drakkar
-        config = get_drakkar_config(DB_PATH)
-        if not config:
-            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
-        # Chercher les EDI sur une plage large (J-2 a J+1) pour couvrir
-        # les decalages entre Date_Trans (reception) et pickup_date (enlevement)
+        # Recuperer les EDI — utilise le cache periodique si disponible,
+        # sinon fetch live depuis Drakkar
         from datetime import timedelta
         dt = datetime.strptime(date, '%Y-%m-%d')
-        date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+        date_from = (dt - timedelta(days=7)).strftime('%Y-%m-%d')
         date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
-        all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+        edi_source = 'cache'
+
+        if _edi_cache['shipments'] and _edi_cache['last_sync']:
+            all_shipments = _edi_cache['shipments']
+        else:
+            config = get_drakkar_config(DB_PATH)
+            if not config:
+                return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+            all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+            edi_source = 'live'
 
         # Filtrer les shipments dont pickup_date correspond a la date selectionnee
+        # Inclure aussi ceux sans pickup_date (format inconnu ou absent)
         edi_shipments = []
+        edi_no_date = []
+        edi_all_dates = set()
         for s in all_shipments:
-            pd = s.get('pickup_date', '')
-            # pickup_date format: "2026-02-11" ou "11/02/2026" etc.
-            if pd:
-                # Normaliser en YYYY-MM-DD
-                pd_norm = pd[:10] if len(pd) >= 10 else pd
+            pd_raw = s.get('pickup_date', '')
+            if pd_raw:
+                # Normaliser en YYYY-MM-DD (supporte YYYY-MM-DD, YYYYMMDD, DD/MM/YYYY)
+                pd_norm = pd_raw[:10] if '-' in pd_raw[:10] else ''
+                if not pd_norm and len(pd_raw) >= 8 and pd_raw[:8].isdigit():
+                    pd_norm = f'{pd_raw[:4]}-{pd_raw[4:6]}-{pd_raw[6:8]}'
+                if not pd_norm and '/' in pd_raw:
+                    parts = pd_raw.split('/')
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        pd_norm = f'{parts[2]}-{parts[1]}-{parts[0]}'
+                edi_all_dates.add(pd_norm)
                 if pd_norm == date:
                     edi_shipments.append(s)
+            else:
+                edi_no_date.append(s)
+        # Ajouter les EDI sans pickup_date (ils pourraient correspondre)
+        edi_shipments.extend(edi_no_date)
 
         # Recuperer les enlevements PDF depuis SQLite
-        # Le document PDF est emis J-1 ou J-2 par rapport a la date d'enlevement
-        # On prend une plage large pour couvrir les decalages
+        # La date du document PDF (date_creation) ne correspond pas toujours
+        # a la date d'enlevement : le PDF est souvent genere J-1 ou meme J-2
+        # On prend une fenetre large (J-2 a J+1) mais DEDUPLIQUEE :
+        # seule la derniere extraction par jour est conservee, pour eviter
+        # les doublons des re-extractions du meme PDF
+        pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+        pdf_date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
         try:
             from bibile.database import get_db as _get_db
         except ImportError:
             from database import get_db as _get_db
         conn = _get_db(DB_PATH)
+        # Chercher par date_enlevement (date de pickup reelle) si disponible,
+        # sinon fallback sur date_creation (date du document) avec deduplication
         rows = conn.execute("""
             SELECT e.* FROM enlevements e
+            WHERE e.date_enlevement = ?
+            AND e.id IN (
+                SELECT MAX(e2.id) FROM enlevements e2
+                WHERE e2.date_enlevement = ?
+                GROUP BY e2.num_enlevement, e2.societe
+            )
+            UNION ALL
+            SELECT e.* FROM enlevements e
             JOIN extractions ex ON e.extraction_id = ex.id
-            WHERE DATE(ex.date_creation) BETWEEN ? AND ?
-            ORDER BY e.num_enlevement
-        """, (date_from, date)).fetchall()
+            WHERE e.date_enlevement IS NULL
+            AND ex.id IN (
+                SELECT MAX(id) FROM extractions
+                WHERE DATE(date_creation) BETWEEN ? AND ?
+                GROUP BY DATE(date_creation)
+            )
+            ORDER BY num_enlevement
+        """, (date, date, pdf_date_from, pdf_date_to)).fetchall()
         conn.close()
         pdf_enlevements = [dict(r) for r in rows]
 
-        # Comparer
+        # Comparer — le matcher rapproche par nom, poids, reference, etc.
         result = compare_edi_pdf(edi_shipments, pdf_enlevements)
+        result['debug_info'] = {
+            'pdf_date_range': f'{pdf_date_from} -> {pdf_date_to}',
+            'edi_date_range': f'{date_from} -> {date_to}',
+            'edi_pickup_dates': sorted(edi_all_dates),
+            'nb_pdf_enlevements': len(pdf_enlevements),
+            'nb_edi_shipments': len(edi_shipments),
+            'nb_edi_total_fetched': len(all_shipments),
+            'edi_source': edi_source,
+            'edi_last_sync': _edi_cache.get('last_sync'),
+        }
         return jsonify(result)
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
@@ -1821,16 +2081,28 @@ def api_drakkar_compare_export():
 
         from datetime import timedelta
         dt = datetime.strptime(date, '%Y-%m-%d')
-        date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+        date_from = (dt - timedelta(days=7)).strftime('%Y-%m-%d')
         date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
         all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
 
         edi_shipments = []
         for s in all_shipments:
-            pd_val = s.get('pickup_date', '')
-            if pd_val and pd_val[:10] == date:
+            pd_raw = s.get('pickup_date', '')
+            if pd_raw:
+                pd_norm = pd_raw[:10] if '-' in pd_raw[:10] else ''
+                if not pd_norm and len(pd_raw) >= 8 and pd_raw[:8].isdigit():
+                    pd_norm = f'{pd_raw[:4]}-{pd_raw[4:6]}-{pd_raw[6:8]}'
+                if not pd_norm and '/' in pd_raw:
+                    parts = pd_raw.split('/')
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        pd_norm = f'{parts[2]}-{parts[1]}-{parts[0]}'
+                if pd_norm == date:
+                    edi_shipments.append(s)
+            else:
                 edi_shipments.append(s)
 
+        # Meme logique de deduplication que api_drakkar_compare
+        pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
         try:
             from bibile.database import get_db as _get_db
         except ImportError:
@@ -1838,10 +2110,23 @@ def api_drakkar_compare_export():
         conn = _get_db(DB_PATH)
         rows = conn.execute("""
             SELECT e.* FROM enlevements e
+            WHERE e.date_enlevement = ?
+            AND e.id IN (
+                SELECT MAX(e2.id) FROM enlevements e2
+                WHERE e2.date_enlevement = ?
+                GROUP BY e2.num_enlevement, e2.societe
+            )
+            UNION ALL
+            SELECT e.* FROM enlevements e
             JOIN extractions ex ON e.extraction_id = ex.id
-            WHERE DATE(ex.date_creation) BETWEEN ? AND ?
-            ORDER BY e.num_enlevement
-        """, (date_from, date)).fetchall()
+            WHERE e.date_enlevement IS NULL
+            AND ex.id IN (
+                SELECT MAX(id) FROM extractions
+                WHERE DATE(date_creation) BETWEEN ? AND ?
+                GROUP BY DATE(date_creation)
+            )
+            ORDER BY num_enlevement
+        """, (date, date, pdf_date_from, pdf_date_to)).fetchall()
         conn.close()
         pdf_enlevements = [dict(r) for r in rows]
 
@@ -1928,6 +2213,47 @@ def api_drakkar_compare_export():
         return send_file(buf, as_attachment=True, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/database/purge', methods=['POST'])
+def api_database_purge():
+    """Vider completement la base de donnees locale (toutes les tables de donnees)."""
+    try:
+        data = request.get_json() or {}
+        confirmation = data.get('confirmation', '')
+        if confirmation != 'SUPPRIMER TOUTES LES DONNEES':
+            return jsonify({'erreur': 'Confirmation invalide'}), 400
+
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+
+        conn = _get_db(DB_PATH)
+        # Supprimer les donnees dans l'ordre (FK)
+        tables = [
+            'tournee_enlevements',
+            'tournees',
+            'enlevements',
+            'extractions',
+            'edi_messages',
+            'donnees_transport',
+        ]
+        deleted = {}
+        for table in tables:
+            try:
+                count = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+                conn.execute(f'DELETE FROM {table}')
+                deleted[table] = count
+            except Exception:
+                deleted[table] = 0
+        conn.commit()
+        conn.close()
+
+        total = sum(deleted.values())
+        return jsonify({'ok': True, 'deleted': deleted, 'total': total})
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
 

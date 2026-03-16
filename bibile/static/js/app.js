@@ -127,6 +127,57 @@ generateBtn.addEventListener('click', async () => {
     }
 });
 
+// Save to DB only (no Excel download)
+const saveDbBtn = document.getElementById('saveDbBtn');
+saveDbBtn.addEventListener('click', async () => {
+    const text = textInput.value.trim();
+
+    if (!text) {
+        showStatus('Veuillez coller du texte ou importer un PDF', 'error');
+        textInput.focus();
+        return;
+    }
+
+    if (!text.includes('Enlèvement') && !text.includes('Enl\u00e8vement')) {
+        showStatus('Le texte ne contient pas d\'informations d\'enlèvement.', 'error');
+        return;
+    }
+
+    saveDbBtn.disabled = true;
+    saveDbBtn.innerHTML = 'Sauvegarde...';
+    showProgress();
+    hideStatus();
+
+    try {
+        const response = await fetch('/sauvegarder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ texte: text })
+        });
+
+        const data = await response.json();
+
+        if (data.erreur) throw new Error(data.erreur);
+
+        let msg = `${data.nb_total} enlèvement(s) traité(s)`;
+        if (data.nb_saved > 0) msg += ` — ${data.nb_saved} nouveau(x)`;
+        if (data.nb_updated > 0) msg += ` — ${data.nb_updated} mis à jour`;
+        if (data.erreurs_controle && data.erreurs_controle.length > 0) {
+            msg += ` (${data.erreurs_controle.length} alerte(s))`;
+        }
+        showStatus(msg, 'success');
+        clearDraft();
+
+    } catch (error) {
+        console.error('Save error:', error);
+        showStatus(`Erreur : ${error.message}`, 'error');
+    } finally {
+        saveDbBtn.disabled = false;
+        saveDbBtn.innerHTML = 'Sauvegarder en BDD';
+        hideProgress();
+    }
+});
+
 // Initialize
 updateCharCount();
 
