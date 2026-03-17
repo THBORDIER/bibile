@@ -29,6 +29,7 @@
         </div>
         <div class="toolbar-views">
             <button id="btnViewKanban" class="btn btn-view active" data-view="kanban">Kanban</button>
+            <button id="btnViewFeuille" class="btn btn-view" data-view="feuille">Feuille de route</button>
             <button id="btnViewMap" class="btn btn-view" data-view="map">Carte</button>
         </div>
     </div>
@@ -46,6 +47,11 @@
         </div>
     </div>
     <!-- Colonnes dynamiques pour les tournees -->
+</div>
+
+<!-- Vue Feuille de route (type Excel) -->
+<div id="feuilleView" class="feuille-view hidden">
+    <!-- Rendu dynamique par JS -->
 </div>
 
 <!-- Vue Carte -->
@@ -128,6 +134,63 @@
             <button id="btnSaveEditTournee" class="btn btn-primary">Enregistrer</button>
             <button id="btnDeleteTournee" class="btn btn-danger">Supprimer</button>
             <button id="btnCancelEditTournee" class="btn btn-secondary">Annuler</button>
+        </div>
+    </div>
+</div>
+<!-- Modal creer/editer enlevement -->
+<div id="modalEnlevement" class="modal hidden">
+    <div class="modal-content" style="max-width:550px;">
+        <h3 id="modalEnlevementTitle">Ajouter un enlevement</h3>
+        <input type="hidden" id="enlEditId" value="">
+        <input type="hidden" id="enlEditTourneeId" value="">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div class="form-group">
+                <label>Reference</label>
+                <input type="text" id="enlRef" class="form-input" placeholder="FRBC78660">
+            </div>
+            <div class="form-group">
+                <label>Societe</label>
+                <input type="text" id="enlSociete" class="form-input" placeholder="Nom du domaine">
+            </div>
+            <div class="form-group">
+                <label>Ville</label>
+                <input type="text" id="enlVille" class="form-input" placeholder="21 BEAUNE">
+            </div>
+            <div class="form-group">
+                <label>Livraison</label>
+                <select id="enlLivraison" class="form-select">
+                    <option value="BREVET">BREVET</option>
+                    <option value="TRANSIT">TRANSIT</option>
+                    <option value="CHEVROLET">CHEVROLET</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Palettes</label>
+                <input type="number" id="enlPalettes" class="form-input" value="0" min="0" step="0.5">
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="enlTypePal" class="form-select">
+                    <option value="VMF">VMF</option>
+                    <option value="EURO">EURO</option>
+                    <option value="PART PALLET">PART PALLET</option>
+                    <option value="HALF PALLET">HALF PALLET</option>
+                    <option value="PALLET">PALLET</option>
+                    <option value="LOOSE LOADED">LOOSE LOADED</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Poids (kg)</label>
+                <input type="number" id="enlPoids" class="form-input" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label>Colis</label>
+                <input type="number" id="enlColis" class="form-input" value="0" min="0">
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button id="btnSaveEnlevement" class="btn btn-primary">Enregistrer</button>
+            <button id="btnCancelEnlevement" class="btn btn-secondary">Annuler</button>
         </div>
     </div>
 </div>

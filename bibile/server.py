@@ -1632,6 +1632,92 @@ def api_reorder_enlevements(tid):
         return jsonify({'erreur': str(e)}), 500
 
 
+@app.route('/api/tournee-enlevements/<int:te_id>/observation', methods=['PUT'])
+def api_update_observation(te_id):
+    """Met a jour l'observation d'un enlevement dans une tournee."""
+    try:
+        data = request.get_json()
+        obs = data.get('observation', '')
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+        conn = _get_db(DB_PATH)
+        conn.execute("UPDATE tournee_enlevements SET observation = ? WHERE id = ?", (obs, te_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/enlevements', methods=['POST'])
+def api_create_enlevement():
+    """Cree un enlevement manuellement (pas depuis un PDF)."""
+    try:
+        data = request.get_json()
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+        conn = _get_db(DB_PATH)
+        # Creer une extraction factice si necessaire
+        ext_row = conn.execute(
+            "SELECT id FROM extractions WHERE nom_fichier = 'Manuel' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if ext_row:
+            ext_id = ext_row['id']
+        else:
+            cursor = conn.execute(
+                "INSERT INTO extractions (nom_fichier, date_creation, nb_lignes) VALUES ('Manuel', datetime('now'), 0)",
+            )
+            ext_id = cursor.lastrowid
+
+        cursor = conn.execute("""
+            INSERT INTO enlevements (extraction_id, num_enlevement, reference, societe, ville,
+                nb_palettes, type_palettes, poids_total, nb_colis, livraison, telephone, date_enlevement)
+            VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (ext_id, data.get('reference', ''), data.get('societe', ''), data.get('ville', ''),
+              data.get('nb_palettes', 0), data.get('type_palettes', ''), data.get('poids_total', 0),
+              data.get('nb_colis', 0), data.get('livraison', ''), data.get('telephone', ''),
+              data.get('date_enlevement', '')))
+        enl_id = cursor.lastrowid
+        conn.execute("UPDATE extractions SET nb_lignes = nb_lignes + 1 WHERE id = ?", (ext_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'id': enl_id})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/enlevements/<int:eid>', methods=['PUT'])
+def api_update_enlevement(eid):
+    """Modifie un enlevement existant."""
+    try:
+        data = request.get_json()
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+        conn = _get_db(DB_PATH)
+        fields = ['reference', 'societe', 'ville', 'nb_palettes', 'type_palettes',
+                  'poids_total', 'nb_colis', 'livraison', 'telephone', 'date_enlevement']
+        updates = []
+        values = []
+        for f in fields:
+            if f in data:
+                updates.append(f"{f} = ?")
+                values.append(data[f])
+        if updates:
+            values.append(eid)
+            conn.execute(f"UPDATE enlevements SET {', '.join(updates)} WHERE id = ?", values)
+            conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
 @app.route('/api/enlevements-non-assignes')
 def api_unassigned():
     try:
@@ -2675,6 +2761,316 @@ def api_database_purge():
 
         total = sum(deleted.values())
         return jsonify({'ok': True, 'deleted': deleted, 'total': total})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+# ===== FACTURATION =====
+
+@app.route('/facturation')
+def page_facturation():
+    return render_template('facturation.html', active_page='facturation')
+
+
+@app.route('/api/facturation/charger')
+def api_facturation_charger():
+    """Charge les enlevements d'une date et les transforme en lignes de facturation."""
+    try:
+        date = request.args.get('date')
+        ref_cli1 = request.args.get('ref', '')
+        if not date:
+            return jsonify({'erreur': 'Parametre date requis'}), 400
+
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+
+        conn = _get_db(DB_PATH)
+
+        # Strategie de deduplication identique a la comparaison EDI
+        main_ext = conn.execute("""
+            SELECT extraction_id, COUNT(*) as cnt
+            FROM enlevements WHERE date_enlevement = ?
+            GROUP BY extraction_id ORDER BY cnt DESC, extraction_id DESC LIMIT 1
+        """, (date,)).fetchone()
+
+        if main_ext:
+            main_ext_id = main_ext['extraction_id']
+            rows_main = conn.execute("""
+                SELECT e.* FROM enlevements e
+                WHERE e.date_enlevement = ? AND e.extraction_id = ?
+                ORDER BY e.num_enlevement
+            """, (date, main_ext_id)).fetchall()
+            covered = set()
+            for r in rows_main:
+                soc = (r['societe'] or '').strip().upper()
+                if soc:
+                    covered.add(soc)
+            rows_extra = conn.execute("""
+                SELECT e.* FROM enlevements e
+                WHERE e.date_enlevement = ? AND e.extraction_id > ?
+                AND e.id IN (
+                    SELECT MAX(e2.id) FROM enlevements e2
+                    WHERE e2.date_enlevement = ? AND e2.extraction_id > ?
+                    GROUP BY e2.societe
+                )
+                ORDER BY e.num_enlevement
+            """, (date, main_ext_id, date, main_ext_id)).fetchall()
+            rows = list(rows_main)
+            for r in rows_extra:
+                soc = (r['societe'] or '').strip().upper()
+                if soc not in covered:
+                    rows.append(r)
+                    covered.add(soc)
+        else:
+            rows = []
+
+        # Fallback: anciennes extractions sans date_enlevement
+        if not rows:
+            from datetime import timedelta
+            dt = datetime.strptime(date, '%Y-%m-%d')
+            pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+            pdf_date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
+            rows = conn.execute("""
+                SELECT e.* FROM enlevements e
+                JOIN extractions ex ON e.extraction_id = ex.id
+                WHERE e.date_enlevement IS NULL
+                AND ex.id IN (
+                    SELECT MAX(id) FROM extractions
+                    WHERE DATE(date_creation) BETWEEN ? AND ?
+                    GROUP BY DATE(date_creation)
+                )
+                ORDER BY num_enlevement
+            """, (pdf_date_from, pdf_date_to)).fetchall()
+
+        # Recuperer les assignations de tournees pour cette date
+        tournee_map = {}  # enlevement_id -> tournee_nom
+        try:
+            t_rows = conn.execute("""
+                SELECT te.enlevement_id, t.nom as tournee_nom
+                FROM tournee_enlevements te
+                JOIN tournees t ON te.tournee_id = t.id
+                WHERE t.date = ?
+            """, (date,)).fetchall()
+            for tr in t_rows:
+                tournee_map[tr['enlevement_id']] = tr['tournee_nom']
+        except Exception:
+            pass
+
+        conn.close()
+
+        # Transformer en lignes de facturation
+        lignes = []
+        for r in rows:
+            row = dict(r)
+            livraison = (row.get('livraison') or '').strip().upper()
+            ref2 = (row.get('reference') or '').strip()
+            # Retirer le suffixe /T01, /T02 etc. de la reference
+            if '/' in ref2:
+                ref2_base = ref2.split('/')[0]
+            else:
+                ref2_base = ref2
+            # Si ref contient " + " (refs multiples), prendre la premiere
+            if ' + ' in ref2_base:
+                ref2_base = ref2_base.split(' + ')[0].strip()
+
+            # Mapping livraison → destinataire / tournee / PAQ
+            destinataire = ''
+            tournee_defaut = ''
+            paq = 0
+            if 'BREVET' in livraison:
+                destinataire = 'BREVET Transports'
+                tournee_defaut = 'HILLEBRAND CHATENOY'
+                paq = 0
+            elif 'TRANSIT' in livraison:
+                destinataire = 'HILLEBRAND TRANSIT CHEVROLLET'
+                tournee_defaut = 'HILLEBRAND TRANSIT'
+                paq = 1
+            elif 'CHEVRO' in livraison or 'STORAGE' in livraison:
+                destinataire = 'HILLEBRAND CHEVROLLET STOCKAGE'
+                tournee_defaut = 'HILLEBRAND CHEVROLET'
+                paq = 1
+            elif livraison == 'HILLEBRAND':
+                # Livraison directe Hillebrand (sans precision TRANSIT/CHEVROLET)
+                destinataire = 'BREVET Transports'
+                tournee_defaut = 'HILLEBRAND CHATENOY'
+                paq = 0
+            elif livraison == 'GREFFAGE':
+                destinataire = 'BREVET Transports'
+                tournee_defaut = 'HILLEBRAND CHATENOY'
+                paq = 0
+            else:
+                destinataire = livraison or 'BREVET Transports'
+                tournee_defaut = 'HILLEBRAND CHATENOY'
+                paq = 0
+
+            # Si assigne a une tournee reelle, utiliser ce nom
+            tournee_reelle = tournee_map.get(row['id'], '')
+            if tournee_reelle:
+                # Adapter PAQ selon la tournee reelle
+                tn = tournee_reelle.upper()
+                if 'CHATENOY' in tn or 'BREVET' in tn:
+                    paq = 0
+                elif 'TRANSIT' in tn or 'CHEVRO' in tn:
+                    paq = 1
+                tournee_final = tournee_reelle
+            else:
+                tournee_final = tournee_defaut
+
+            # Palettes = nb_palettes (type EURO/VMF comptent, PART=0, HALF=1)
+            um = int(row.get('nb_palettes') or 0)
+            colis = int(row.get('nb_colis') or 0)
+            poids = int(row.get('poids_total') or 0)
+
+            lignes.append({
+                'num_recep': '',
+                'origine': '',
+                'expediteur': row.get('societe') or '',
+                'dpt': '',
+                'destinataire': destinataire,
+                'cp_dest': '',
+                'localite_dest': '',
+                'dpt2': '',
+                'pec': '',
+                'liv': '',
+                'tournee': tournee_final,
+                'paq': paq,
+                'um': um,
+                'colis': colis,
+                'poids': poids,
+                'ca_trs': 0,
+                'ref_cli1': ref_cli1,
+                'ref_cli2': ref2_base,
+            })
+
+        # Trier par expediteur (comme dans le fichier d'exemple)
+        lignes.sort(key=lambda x: (x['expediteur'] or '').upper())
+
+        return jsonify({
+            'lignes': lignes,
+            'ref_suggestion': ref_cli1 or '',
+        })
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
+@app.route('/api/facturation/generer', methods=['POST'])
+def api_facturation_generer():
+    """Genere le fichier Excel de facturation au format Hillebrand."""
+    try:
+        data = request.get_json()
+        date = data.get('date', '')
+        ref = data.get('ref', 'facturation')
+        lignes = data.get('lignes', [])
+
+        if not lignes:
+            return jsonify({'erreur': 'Aucune ligne a exporter'}), 400
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        import tempfile
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Facturation'
+
+        # En-tetes
+        headers = [
+            'N\u00b0 r\u00e9c\u00e9p.', 'Origine', 'Exp\u00e9diteur', 'Dpt.',
+            'Destinataire', 'CP. dest.', 'Localit\u00e9 dest.', 'Dpt.2',
+            'PEC', 'LIV', 'Tourn\u00e9e', 'PAQ', 'U.M.', 'Colis',
+            'Poids', 'CA Trs.', 'R\u00e9f.cli.1', 'R\u00e9f.cli.2'
+        ]
+        header_font = Font(bold=True, size=10, name='Arial')
+        header_fill = PatternFill('solid', fgColor='D9E1F2')
+        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+
+        for col_idx, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+        # Donnees
+        data_font = Font(size=9, name='Arial')
+        num_align = Alignment(horizontal='right')
+        for row_idx, ligne in enumerate(lignes, 2):
+            vals = [
+                ligne.get('num_recep', ''),
+                ligne.get('origine', ''),
+                ligne.get('expediteur', ''),
+                ligne.get('dpt', ''),
+                ligne.get('destinataire', ''),
+                ligne.get('cp_dest', ''),
+                ligne.get('localite_dest', ''),
+                ligne.get('dpt2', ''),
+                ligne.get('pec', ''),
+                ligne.get('liv', ''),
+                ligne.get('tournee', ''),
+                int(ligne.get('paq', 0) or 0),
+                int(ligne.get('um', 0) or 0),
+                int(ligne.get('colis', 0) or 0),
+                int(ligne.get('poids', 0) or 0),
+                float(ligne.get('ca_trs', 0) or 0),
+                ligne.get('ref_cli1', ''),
+                ligne.get('ref_cli2', ''),
+            ]
+            for col_idx, v in enumerate(vals, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=v if v is not None else '')
+                cell.font = data_font
+                cell.border = thin_border
+                if col_idx in (12, 13, 14, 15, 16):
+                    cell.alignment = num_align
+                    if col_idx == 16 and v:
+                        cell.number_format = '#,##0.00'
+
+        # Ligne TOTAUX
+        tot_row = len(lignes) + 2
+        ws.cell(row=tot_row, column=1, value='TOTAUX').font = Font(bold=True, size=10, name='Arial')
+        for col_idx in range(1, 19):
+            ws.cell(row=tot_row, column=col_idx).border = thin_border
+            ws.cell(row=tot_row, column=col_idx).font = Font(bold=True, size=9, name='Arial')
+
+        # Formules de totaux
+        ws.cell(row=tot_row, column=12, value=f'=SUM(L2:L{tot_row-1})')
+        ws.cell(row=tot_row, column=13, value=f'=SUM(M2:M{tot_row-1})')
+        ws.cell(row=tot_row, column=14, value=f'=SUM(N2:N{tot_row-1})')
+        ws.cell(row=tot_row, column=15, value=f'=SUM(O2:O{tot_row-1})')
+        ws.cell(row=tot_row, column=16, value=f'=SUM(P2:P{tot_row-1})')
+        ws.cell(row=tot_row, column=16).number_format = '#,##0.00'
+        ws.cell(row=tot_row, column=12).alignment = num_align
+        ws.cell(row=tot_row, column=13).alignment = num_align
+        ws.cell(row=tot_row, column=14).alignment = num_align
+        ws.cell(row=tot_row, column=15).alignment = num_align
+        ws.cell(row=tot_row, column=16).alignment = num_align
+
+        # Largeurs de colonnes
+        widths = [10, 8, 28, 5, 30, 8, 18, 5, 10, 10, 22, 5, 5, 6, 7, 10, 14, 14]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[chr(64 + i) if i <= 26 else ''].width = w
+        # Fix for columns > 26
+        from openpyxl.utils import get_column_letter
+        for i, w in enumerate(widths):
+            ws.column_dimensions[get_column_letter(i + 1)].width = w
+
+        # Sauvegarder dans un fichier temporaire
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        wb.save(tmp.name)
+        tmp.close()
+
+        filename = f'{ref}_{date}.xlsx' if ref else f'facturation_{date}.xlsx'
+        return send_file(
+            tmp.name,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
 

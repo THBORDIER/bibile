@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnSaveEditTournee').addEventListener('click', saveEditTournee);
     document.getElementById('btnDeleteTournee').addEventListener('click', deleteTournee);
     document.getElementById('btnCancelEditTournee').addEventListener('click', () => hideModal('modalEditTournee'));
+    document.getElementById('btnSaveEnlevement').addEventListener('click', saveEnlevement);
+    document.getElementById('btnCancelEnlevement').addEventListener('click', () => hideModal('modalEnlevement'));
 
     // Navigation date
     document.getElementById('btnPrevDay').addEventListener('click', () => changeDay(-1));
@@ -151,6 +153,11 @@ async function loadData() {
         unassigned = unassignedData.enlevements || [];
 
         renderKanban();
+
+        // Mettre à jour la feuille de route si visible
+        if (!document.getElementById('feuilleView').classList.contains('hidden')) {
+            renderFeuille();
+        }
 
         // Mettre à jour la carte si visible
         if (typeof updateMap === 'function' && !document.getElementById('mapView').classList.contains('hidden')) {
@@ -450,11 +457,16 @@ async function toggleView(view) {
     document.querySelectorAll('.btn-view[data-view]').forEach(b => b.classList.remove('active'));
     document.querySelector(`.btn-view[data-view="${view}"]`).classList.add('active');
 
+    document.getElementById('kanbanView').classList.add('hidden');
+    document.getElementById('feuilleView').classList.add('hidden');
+    document.getElementById('mapView').classList.add('hidden');
+
     if (view === 'kanban') {
         document.getElementById('kanbanView').classList.remove('hidden');
-        document.getElementById('mapView').classList.add('hidden');
-    } else {
-        document.getElementById('kanbanView').classList.add('hidden');
+    } else if (view === 'feuille') {
+        document.getElementById('feuilleView').classList.remove('hidden');
+        renderFeuille();
+    } else if (view === 'map') {
         document.getElementById('mapView').classList.remove('hidden');
         if (typeof initMap === 'function') {
             initMap();
@@ -478,6 +490,264 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+
+// ===== FEUILLE DE ROUTE =====
+
+function renderFeuille() {
+    const container = document.getElementById('feuilleView');
+    container.innerHTML = '';
+
+    if (tournees.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted" style="padding:40px;">Aucune tournee pour cette date.</div>';
+        return;
+    }
+
+    // Format date for header
+    const dateObj = new Date(currentDate + 'T00:00:00');
+    const dateStr = dateObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+    tournees.forEach(t => {
+        const chauffeurName = t.chauffeur_nom ? `${t.chauffeur_nom} ${t.chauffeur_prenom || ''}`.trim() : 'Non assigne';
+        const vehiculeName = t.vehicule_immat || 'Non assigne';
+        const vehiculeType = t.type_vehicule || '';
+        const enlevements = t.enlevements || [];
+
+        let totalPal = 0, totalPoids = 0, totalColis = 0;
+        enlevements.forEach(e => {
+            totalPal += (e.nb_palettes || 0);
+            totalPoids += (e.poids_total || 0);
+            totalColis += (e.nb_colis || 0);
+        });
+
+        const div = document.createElement('div');
+        div.className = 'feuille-tournee';
+        div.innerHTML = `
+            <div class="feuille-header">
+                <span class="feuille-header-title">${escapeHtml(t.nom)}</span>
+                <div class="feuille-header-info">
+                    <span>Date : <strong>${escapeHtml(dateStr)}</strong></span>
+                    <span>Chauffeur : <strong>${escapeHtml(chauffeurName)}</strong></span>
+                    <span>Camion : <strong>${escapeHtml(vehiculeName)}${vehiculeType ? ' (' + escapeHtml(vehiculeType) + ')' : ''}</strong></span>
+                    <span>Tel : <strong>${escapeHtml(t.chauffeur_tel || '-')}</strong></span>
+                </div>
+                <div class="feuille-header-actions">
+                    <button class="btn btn-sm btn-primary" onclick="showAddEnlevement(${t.id})">+ Enlevement</button>
+                    <button class="btn btn-sm btn-secondary" onclick="printFeuille(${t.id})">Imprimer</button>
+                </div>
+            </div>
+            <div class="feuille-table-wrapper">
+                <table class="feuille-table" id="feuilleTable_${t.id}">
+                    <thead>
+                        <tr>
+                            <th style="width:40px">N&deg;</th>
+                            <th>REF</th>
+                            <th>CLIENT</th>
+                            <th>VILLE</th>
+                            <th style="text-align:right">PALS</th>
+                            <th>TYPE</th>
+                            <th style="text-align:right">POIDS</th>
+                            <th style="text-align:right">COLIS</th>
+                            <th>DESTINATION</th>
+                            <th>OBSERVATION</th>
+                            <th style="width:60px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${enlevements.map((e, idx) => feuilleRow(e, idx + 1, t.id)).join('')}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="4" style="text-align:right">TOTAUX</td>
+                            <td style="text-align:right">${totalPal}</td>
+                            <td></td>
+                            <td style="text-align:right">${totalPoids} kg</td>
+                            <td style="text-align:right">${totalColis}</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+
+function feuilleRow(e, num, tourneeId) {
+    const livClass = (e.livraison || '').toLowerCase();
+    const livCls = livClass === 'brevet' ? 'livraison-brevet'
+        : livClass === 'transit' ? 'livraison-transit'
+        : livClass === 'chevrolet' ? 'livraison-chevrolet' : '';
+    const obs = e.observation || '';
+    const obsClass = obs ? 'obs-text has-content' : 'obs-text';
+    const obsDisplay = obs || 'Cliquer pour ajouter...';
+
+    return `<tr data-enl-id="${e.id}" data-te-id="${e.te_id || ''}">
+        <td class="td-num">${num}</td>
+        <td class="td-ref">${escapeHtml(e.reference || '')}</td>
+        <td>${escapeHtml(e.societe || '')}</td>
+        <td>${escapeHtml(e.ville || '')}</td>
+        <td class="td-right">${e.nb_palettes || 0}</td>
+        <td>${escapeHtml(e.type_palettes || '')}</td>
+        <td class="td-right">${e.poids_total || 0} kg</td>
+        <td class="td-right">${e.nb_colis || 0}</td>
+        <td class="td-livraison ${livCls}">${escapeHtml(e.livraison || '')}</td>
+        <td class="td-observation">
+            <span class="${obsClass}" data-te-id="${e.te_id || ''}" onclick="editObservation(this)">${escapeHtml(obsDisplay)}</span>
+        </td>
+        <td>
+            <div class="feuille-row-actions">
+                <button class="btn-edit-enl" title="Modifier" onclick='showEditEnlevement(${JSON.stringify({id:e.id, reference:e.reference||"", societe:e.societe||"", ville:e.ville||"", livraison:e.livraison||"", nb_palettes:e.nb_palettes||0, type_palettes:e.type_palettes||"", poids_total:e.poids_total||0, nb_colis:e.nb_colis||0}).replace(/'/g,"&#39;")})'>&#9998;</button>
+            </div>
+        </td>
+    </tr>`;
+}
+
+
+function editObservation(el) {
+    const teId = el.dataset.teId;
+    if (!teId) return;
+    const currentVal = el.classList.contains('has-content') ? el.textContent : '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'obs-input';
+    input.value = currentVal;
+    el.replaceWith(input);
+    input.focus();
+
+    const save = async () => {
+        const val = input.value.trim();
+        try {
+            await fetch(`/api/tournee-enlevements/${teId}/observation`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ observation: val }),
+            });
+        } catch (err) {
+            console.error('Erreur sauvegarde observation:', err);
+        }
+        const span = document.createElement('span');
+        span.className = val ? 'obs-text has-content' : 'obs-text';
+        span.dataset.teId = teId;
+        span.setAttribute('onclick', 'editObservation(this)');
+        span.textContent = val || 'Cliquer pour ajouter...';
+        input.replaceWith(span);
+    };
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') input.blur();
+        if (ev.key === 'Escape') {
+            input.value = currentVal;
+            input.blur();
+        }
+    });
+}
+
+
+// ===== ENLEVEMENT CREATE/EDIT MODAL =====
+
+function showAddEnlevement(tourneeId) {
+    document.getElementById('modalEnlevementTitle').textContent = 'Ajouter un enlevement';
+    document.getElementById('enlEditId').value = '';
+    document.getElementById('enlEditTourneeId').value = tourneeId;
+    document.getElementById('enlRef').value = '';
+    document.getElementById('enlSociete').value = '';
+    document.getElementById('enlVille').value = '';
+    document.getElementById('enlLivraison').value = 'BREVET';
+    document.getElementById('enlPalettes').value = '0';
+    document.getElementById('enlTypePal').value = 'VMF';
+    document.getElementById('enlPoids').value = '0';
+    document.getElementById('enlColis').value = '0';
+    showModal('modalEnlevement');
+}
+
+
+function showEditEnlevement(data) {
+    document.getElementById('modalEnlevementTitle').textContent = 'Modifier l\'enlevement';
+    document.getElementById('enlEditId').value = data.id;
+    document.getElementById('enlEditTourneeId').value = '';
+    document.getElementById('enlRef').value = data.reference || '';
+    document.getElementById('enlSociete').value = data.societe || '';
+    document.getElementById('enlVille').value = data.ville || '';
+    document.getElementById('enlLivraison').value = (data.livraison || 'BREVET').toUpperCase();
+    document.getElementById('enlPalettes').value = data.nb_palettes || 0;
+    document.getElementById('enlTypePal').value = data.type_palettes || 'VMF';
+    document.getElementById('enlPoids').value = data.poids_total || 0;
+    document.getElementById('enlColis').value = data.nb_colis || 0;
+    showModal('modalEnlevement');
+}
+
+
+async function saveEnlevement() {
+    const editId = document.getElementById('enlEditId').value;
+    const tourneeId = document.getElementById('enlEditTourneeId').value;
+    const payload = {
+        reference: document.getElementById('enlRef').value.trim(),
+        societe: document.getElementById('enlSociete').value.trim(),
+        ville: document.getElementById('enlVille').value.trim(),
+        livraison: document.getElementById('enlLivraison').value,
+        nb_palettes: parseFloat(document.getElementById('enlPalettes').value) || 0,
+        type_palettes: document.getElementById('enlTypePal').value,
+        poids_total: parseFloat(document.getElementById('enlPoids').value) || 0,
+        nb_colis: parseInt(document.getElementById('enlColis').value) || 0,
+        date_enlevement: currentDate,
+    };
+
+    try {
+        if (editId) {
+            // Edit existing
+            await fetch(`/api/enlevements/${editId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+        } else {
+            // Create new + assign to tournee
+            const resp = await fetch('/api/enlevements', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await resp.json();
+            if (result.id && tourneeId) {
+                await fetch(`/api/tournees/${tourneeId}/enlevements`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enlevement_ids: [result.id] }),
+                });
+            }
+        }
+        hideModal('modalEnlevement');
+        loadData();
+        // Re-render feuille if visible
+        if (!document.getElementById('feuilleView').classList.contains('hidden')) {
+            setTimeout(renderFeuille, 200);
+        }
+    } catch (err) {
+        console.error('Erreur sauvegarde enlevement:', err);
+        alert('Erreur lors de la sauvegarde.');
+    }
+}
+
+
+function printFeuille(tourneeId) {
+    // Hide all tournees except the one to print, then print
+    const allT = document.querySelectorAll('.feuille-tournee');
+    const hidden = [];
+    allT.forEach(el => {
+        const table = el.querySelector(`#feuilleTable_${tourneeId}`);
+        if (!table) {
+            el.style.display = 'none';
+            hidden.push(el);
+        }
+    });
+    window.print();
+    hidden.forEach(el => el.style.display = '');
 }
 
 

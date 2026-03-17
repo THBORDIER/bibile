@@ -302,6 +302,14 @@ def init_db(db_path):
             cursor.execute("ALTER TABLE enlevements ADD COLUMN date_enlevement TEXT")
         except Exception:
             pass
+    # Migration: ajouter observation sur tournee_enlevements
+    try:
+        cursor.execute("SELECT observation FROM tournee_enlevements LIMIT 1")
+    except Exception:
+        try:
+            cursor.execute("ALTER TABLE tournee_enlevements ADD COLUMN observation TEXT DEFAULT ''")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 

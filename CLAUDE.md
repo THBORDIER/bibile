@@ -21,6 +21,7 @@ bibile/
     donnees.html       # Visualisation des donnees
     tournees.html      # Kanban + carte des tournees + geolocalisation vehicules
     edi.html            # Page comparaison EDI vs PDF
+    facturation.html   # Generation fichier facturation Hillebrand (.xlsx)
     gestion.html       # Gestion utilisateur (zones, chauffeurs, vehicules, mapping villes)
     parametres.html    # Parametres systeme (connexion externe DBI, connexion Drakkar EDI)
     statistiques.html  # Page statistiques (filtres periode/livraison/zone, exports PDF/Excel)
@@ -34,6 +35,7 @@ bibile/
     js/historique.js   # JS page historique
     js/statistiques.js # JS page statistiques (Chart.js, filtres, exports PDF/Excel)
     js/edi.js          # JS page EDI (comparaison auto, recherche libre, historique modifications, tri colonnes)
+    js/facturation.js  # JS page facturation (chargement, tableau editable, generation Excel)
     js/tournees.js     # JS Kanban (SortableJS)
     js/carte.js        # JS carte (Leaflet) + couche vehicules GPS
     js/gestion.js      # JS gestion (zones, chauffeurs, vehicules, mapping, autocomplete tournees)
@@ -194,6 +196,21 @@ Le champ `tournee_defaut` existe a deux niveaux : sur la zone (defaut) et sur le
 - **Export Excel** : route `GET /api/statistiques/export?date_debut=&date_fin=&livraison=&zone=` (openpyxl, 4 feuilles)
 - `get_statistiques(db_path, date_debut, date_fin, livraison, zone)` dans `database.py` — supporte filtres livraison et zone (JOIN ville_zone_mapping)
 - Chart.js charge depuis `/static/js/chart.min.js` (local, 202 KB)
+
+## Page Facturation
+
+- Generation automatique du fichier de facturation Hillebrand au format .xlsx
+- Pre-remplissage depuis les enlevements PDF extraits pour une date donnee
+- Mapping livraison → destinataire/tournee/PAQ :
+  - BREVET → "BREVET Transports" / "HILLEBRAND CHATENOY" / PAQ=0
+  - TRANSIT → "HILLEBRAND TRANSIT CHEVROLLET" / "HILLEBRAND TRANSIT" / PAQ=1
+  - CHEVROLET/STORAGE → "HILLEBRAND CHEVROLLET STOCKAGE" / "HILLEBRAND CHEVROLET" / PAQ=1
+  - PAQ adapte selon la tournee reelle assignee (CHATENOY=0, TRANSIT/CHEVROLET=1)
+- Reference (Ref.cli.2) = reference enlevement sans suffixe /T01
+- Champs editables inline : N° recep., Origine, Dpt., CP dest., Localite dest., Dpt.2, PEC, LIV, PAQ, CA Trs.
+- Champs pre-remplis non editables : Expediteur, Destinataire, Tournee, U.M., Colis, Poids, Ref.cli.1, Ref.cli.2
+- Champs a remplir plus tard : N° recep. (interne Brevet), CA Trs. (tarif transport)
+- Routes API : `GET /api/facturation/charger?date=&ref=`, `POST /api/facturation/generer`
 
 ## Types de palettes
 

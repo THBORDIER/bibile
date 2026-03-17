@@ -119,7 +119,8 @@ def list_tournees(db_path, date_tournee):
     conn = get_db(db_path)
     tournees = conn.execute("""
         SELECT t.*, c.nom as chauffeur_nom, c.prenom as chauffeur_prenom,
-               v.immatriculation as vehicule_immat
+               c.telephone as chauffeur_tel,
+               v.immatriculation as vehicule_immat, v.type_vehicule
         FROM tournees t
         LEFT JOIN chauffeurs c ON c.id = t.chauffeur_id
         LEFT JOIN vehicules v ON v.id = t.vehicule_id
@@ -132,7 +133,7 @@ def list_tournees(db_path, date_tournee):
         tournee = dict(t)
         # Charger les enlèvements de cette tournée
         enlevements = conn.execute("""
-            SELECT te.ordre, e.*, vzm.lat, vzm.lon
+            SELECT te.id as te_id, te.ordre, te.observation, e.*, vzm.lat, vzm.lon
             FROM tournee_enlevements te
             JOIN enlevements e ON e.id = te.enlevement_id
             LEFT JOIN ville_zone_mapping vzm ON TRIM(UPPER(e.ville), ' -.,') = TRIM(vzm.ville, ' -.,')

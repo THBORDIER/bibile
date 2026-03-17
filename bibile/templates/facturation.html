@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Facturation - Bibile{% endblock %}
+{% block page_title %}Facturation{% endblock %}
+{% block page_subtitle %}Generation automatique du fichier de facturation Hillebrand{% endblock %}
+
+{% block content %}
+<div class="facturation-page">
+    <!-- Barre d'outils -->
+    <div class="toolbar-row">
+        <div class="toolbar-group">
+            <label>Date d'enlevement</label>
+            <input type="date" id="dateFacturation" class="form-input" style="width:170px">
+        </div>
+        <div class="toolbar-group">
+            <label>Reference facturation</label>
+            <input type="text" id="refFacturation" class="form-input" style="width:200px" placeholder="Ex: FRBG164606">
+        </div>
+        <div class="toolbar-actions">
+            <button id="btnCharger" class="btn btn-primary">Charger</button>
+            <button id="btnGenerer" class="btn btn-success" disabled>Generer Excel</button>
+        </div>
+    </div>
+
+    <!-- Resume -->
+    <div id="factResumeSection" class="fact-resume hidden">
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="stat-value" id="statEnlevements">0</div>
+                <div class="stat-label">Enlevements</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statPalettes">0</div>
+                <div class="stat-label">Palettes (U.M.)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statColis">0</div>
+                <div class="stat-label">Colis</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statPoids">0</div>
+                <div class="stat-label">Poids (kg)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statPaq">0</div>
+                <div class="stat-label">PAQ</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tableau editable -->
+    <div id="factTableSection" class="fact-table-section hidden">
+        <div class="fact-table-wrapper">
+            <table class="fact-table" id="factTable">
+                <thead>
+                    <tr>
+                        <th>N. recep.</th>
+                        <th>Origine</th>
+                        <th>Expediteur</th>
+                        <th>Dpt.</th>
+                        <th>Destinataire</th>
+                        <th>CP.</th>
+                        <th>Localite dest.</th>
+                        <th>Dpt.2</th>
+                        <th>PEC</th>
+                        <th>LIV</th>
+                        <th>Tournee</th>
+                        <th>PAQ</th>
+                        <th>U.M.</th>
+                        <th>Colis</th>
+                        <th>Poids</th>
+                        <th>CA Trs.</th>
+                        <th>Ref.cli.1</th>
+                        <th>Ref.cli.2</th>
+                    </tr>
+                </thead>
+                <tbody id="factTableBody">
+                </tbody>
+                <tfoot id="factTableFoot">
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <!-- Etat vide -->
+    <div id="factEmpty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:64px;height:64px;opacity:0.3">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        <p>Selectionnez une date et cliquez "Charger" pour generer le fichier de facturation</p>
+        <p class="text-muted">Les donnees seront pre-remplies depuis les enlevements PDF extraits</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/facturation.js"></script>
+{% endblock %}
