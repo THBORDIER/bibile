@@ -630,6 +630,205 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
     return infos, palettes
 
 
+def _parse_single_enlevement(lignes, log_file):
+    """
+    Parse le format 'Instructions d'enlèvement' (enlèvement unique, sans numérotation).
+    Structure: Enlèvement (seul) → poids/colis → date → palette → société → adresse → ref → Livraison → destination
+    """
+    log_to_file(">> Format détecté: enlèvement unique (Instructions d'enlèvement)", log_file)
+
+    # Trouver la ligne "Enlèvement" seule (pas "Instructions d'enlèvement", pas "Enlèvement: EUR")
+    enl_start = -1
+    for i, l in enumerate(lignes):
+        stripped = l.strip()
+        if stripped == 'Enlèvement':
+            enl_start = i
+            break
+
+    if enl_start < 0:
+        log_to_file("   Aucune section 'Enlèvement' trouvée", log_file)
+        return []
+
+    # Trouver la section "Livraison" (fin de l'enlèvement)
+    livraison_start = len(lignes)
+    for i in range(enl_start + 1, len(lignes)):
+        if lignes[i].strip() == 'Livraison':
+            livraison_start = i
+            break
+
+    # Extraire les infos de l'enlèvement
+    poids = ""
+    colis = ""
+    date_enl = ""
+    societe = ""
+    ville = ""
+    telephone = ""
+    notre_ref = ""
+    palettes = []
+
+    # Extraire référence depuis l'en-tête du document (ligne "Notre Réf:" avec "Merci de reporter")
+    header_ref = ""
+    for i in range(0, min(10, len(lignes))):
+        if 'Merci de reporter' in lignes[i]:
+            m = re.search(r'Notre Ré[fF]:\s*([A-Z0-9/+\-\s]+?)(?:\s*\()', lignes[i])
+            if m:
+                header_ref = m.group(1).strip()
+            break
+
+    # Scanner les lignes entre Enlèvement et Livraison
+    j = enl_start + 1
+    while j < livraison_start:
+        stripped = lignes[j].strip()
+
+        # Poids
+        if not poids:
+            mp = re.search(r'^([0-9\.]+)\s*kg', stripped, re.IGNORECASE)
+            if mp:
+                poids = mp.group(1).replace('.', '')
+                j += 1
+                continue
+
+        # Colis
+        if not colis:
+            mc = re.search(r'^(\d+)\s*Colis', stripped, re.IGNORECASE)
+            if mc:
+                colis = mc.group(1)
+                j += 1
+                continue
+
+        # Date
+        if not date_enl:
+            match_date = re.match(r'^(\d{1,2})/([^/]+)/(\d{4})\s+\d{2}:\d{2}', stripped)
+            if match_date:
+                jour = int(match_date.group(1))
+                mois_str = match_date.group(2).strip().rstrip('.').lower()
+                annee = int(match_date.group(3))
+                mois = _MOIS_FR.get(mois_str)
+                if mois:
+                    date_enl = f'{annee:04d}-{mois:02d}-{jour:02d}'
+                j += 1
+                continue
+
+        # Palette
+        match_pal = None
+        type_pal = ""
+        nb_pal = ""
+        if re.match(r'^Part\s+pallet', stripped, re.IGNORECASE):
+            match_pal = True; type_pal = "PART PALLET"; nb_pal = "0"
+        elif re.match(r'^(\d+\s+)?Half\s+pallet', stripped, re.IGNORECASE):
+            match_pal = True; type_pal = "HALF PALLET"; nb_pal = "1"
+        elif re.match(r'^(\d+)\s+Euro\s+[Pp]allet', stripped, re.IGNORECASE):
+            m = re.match(r'^(\d+)', stripped); match_pal = True; type_pal = "EURO"; nb_pal = m.group(1)
+        elif re.match(r'^(\d+)\s+VMF\s+[Pp]allet', stripped, re.IGNORECASE):
+            m = re.match(r'^(\d+)', stripped); match_pal = True; type_pal = "VMF"; nb_pal = m.group(1)
+        elif re.match(r'^(\d+)\s+Loose\s+loaded', stripped, re.IGNORECASE):
+            m = re.match(r'^(\d+)', stripped); match_pal = True; type_pal = "LOOSE LOADED"; nb_pal = m.group(1)
+        elif re.match(r'^(\d+)\s+[Pp]allet', stripped, re.IGNORECASE):
+            m = re.match(r'^(\d+)', stripped); match_pal = True; type_pal = "EURO"; nb_pal = m.group(1)
+
+        if match_pal:
+            palettes.append({'type': type_pal, 'nombre': nb_pal})
+            j += 1
+            # Après la palette, les lignes suivantes = société, adresse, ville
+            # Chercher société (première ligne non-vide, non-technique après palette)
+            for k in range(j, livraison_start):
+                lk = lignes[k].strip()
+                if not lk:
+                    continue
+                if re.match(r'^\d{5}\s', lk):  # code postal = on a dépassé la société
+                    break
+                if re.match(r'^\d', lk):  # chiffre (date, poids, etc.)
+                    continue
+                if not societe:
+                    societe = lk.upper()
+                    break
+
+            # Chercher ville (code postal)
+            for k in range(j, livraison_start):
+                lk = lignes[k].strip()
+                match_cp = re.match(r'^(\d{5})\s+(.+)', lk)
+                if match_cp:
+                    ville_raw = match_cp.group(2)
+                    ville = re.sub(r'\s*France\s*$', '', ville_raw, flags=re.IGNORECASE).upper()
+                    break
+
+            # Chercher téléphone
+            for k in range(j, livraison_start):
+                mt = re.search(r'T[:\s]+(\+?33[0-9\s\.]+)', lignes[k])
+                if mt:
+                    tel = mt.group(1).strip()
+                    telephone = re.sub(r'\s+', '.', tel)
+                    break
+
+            # Chercher Notre Réf (pas l'en-tête)
+            for k in range(j, livraison_start):
+                if ('Notre Réf:' in lignes[k] or 'Notre Ref:' in lignes[k]) and 'Merci de reporter' not in lignes[k]:
+                    mr = re.search(r'Notre Ré[fF]:\s*([A-Z0-9/+\-\s]+)', lignes[k])
+                    if mr:
+                        notre_ref = mr.group(1).strip().rstrip('+').rstrip('-').strip()
+                    break
+
+            continue
+
+        j += 1
+
+    # Déterminer la livraison depuis la section Livraison
+    livraison = ""
+    for k in range(livraison_start + 1, min(livraison_start + 15, len(lignes))):
+        lk = lignes[k].strip()
+        if not lk:
+            continue
+        if re.match(r'^\d', lk):  # poids, colis, date
+            continue
+        if re.match(r'^(Part|Half|\d+\s+(Euro|VMF|Loose))\s', lk, re.IGNORECASE):
+            continue
+        if re.match(r'^\d+\s+[Pp]allet', lk):
+            continue
+        # Première ligne "nom" = destinataire
+        if lk.startswith('Hillebrand'):
+            for mot in lk.split():
+                mu = mot.upper()
+                if mu in ['TRANSIT', 'CHEVROLET', 'STORAGE']:
+                    livraison = mu
+                    break
+            if not livraison:
+                livraison = 'HILLEBRAND'
+        else:
+            livraison = lk.split()[0].upper() if lk.split() else ""
+        break
+
+    # Si pas de référence palette, utiliser la ref de l'en-tête
+    if not notre_ref and header_ref:
+        notre_ref = header_ref
+
+    # Construire le résultat
+    lignes_tableau = []
+    if not palettes:
+        # Pas de palette détectée, créer une entrée avec les totaux
+        palettes = [{'type': 'EURO', 'nombre': '1'}]
+
+    for pal in palettes:
+        lignes_tableau.append({
+            'N° ENLÈVEMENT': '1',
+            'NOTRE RÉFÉRENCE': notre_ref,
+            'SOCIÉTÉ / DOMAINE': societe,
+            'VILLE': ville,
+            'NOMBRE DE PALETTES': pal['nombre'],
+            'TYPE DE PALETTES': pal['type'],
+            'POIDS TOTAL (KG)': poids,
+            'NOMBRE DE COLIS': colis,
+            'LIVRAISON ASSOCIÉE': livraison,
+            'TÉLÉPHONE': telephone,
+            'DATE_ENLEVEMENT': date_enl,
+        })
+
+    log_to_file(f"  -> Enlèvement unique: {societe}", log_file)
+    log_to_file(f"     Ville: {ville}, Réf: {notre_ref}", log_file)
+    log_to_file(f"     {len(palettes)} palette(s): {poids} kg, {colis} colis -> {livraison}", log_file)
+
+    return lignes_tableau
+
+
 def parser_texte(texte, log_file):
     """Parse le texte et extrait les informations de manière structurée"""
     log_to_file(">> Début de l'analyse du texte", log_file)
@@ -687,6 +886,11 @@ def parser_texte(texte, log_file):
             i += 1
 
     log_to_file(f"OK {len(lignes_tableau)} lignes de palettes extraites", log_file)
+
+    # Si aucun enlèvement numéroté trouvé, essayer le format enlèvement unique
+    if not lignes_tableau:
+        log_to_file(">> Aucun enlèvement numéroté trouvé, tentative format enlèvement unique...", log_file)
+        lignes_tableau = _parse_single_enlevement(lignes, log_file)
 
     # ÉTAPE 2: Contrôle qualité avec les totaux
     erreurs_controle = controler_totaux(lignes_tableau, totaux_livraisons, mapping_destinataires, log_file)
