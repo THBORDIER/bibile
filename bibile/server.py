@@ -1742,6 +1742,142 @@ def api_auto_distribuer():
         return jsonify({'erreur': str(e)}), 500
 
 
+@app.route('/api/tournees/sync-edi', methods=['POST'])
+def api_sync_edi():
+    """Synchronise les enlevements EDI depuis Drakkar vers la table enlevements."""
+    try:
+        data = request.get_json()
+        date = data.get('date')
+        if not date:
+            return jsonify({'erreur': 'Parametre date requis'}), 400
+
+        # Verifier config Drakkar
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+
+        # Fetch EDI depuis Drakkar (fenetre large pour capter tous les EDI de cette date pickup)
+        from datetime import timedelta
+        dt = datetime.strptime(date, '%Y-%m-%d')
+        date_from = (dt - timedelta(days=10)).strftime('%Y-%m-%d')
+        date_to = (dt + timedelta(days=2)).strftime('%Y-%m-%d')
+        all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+
+        # Filtrer par pickup_date = date demandee
+        edi_shipments = []
+        for s in all_shipments:
+            pd_raw = s.get('pickup_date', '')
+            if pd_raw:
+                pd_norm = pd_raw[:10] if '-' in pd_raw[:10] else ''
+                if not pd_norm and len(pd_raw) >= 8 and pd_raw[:8].isdigit():
+                    pd_norm = f'{pd_raw[:4]}-{pd_raw[4:6]}-{pd_raw[6:8]}'
+                if not pd_norm and '/' in pd_raw:
+                    parts = pd_raw.split('/')
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        pd_norm = f'{parts[2]}-{parts[1]}-{parts[0]}'
+                if pd_norm == date:
+                    edi_shipments.append(s)
+
+        if not edi_shipments:
+            return jsonify({'synced': 0, 'total_edi': len(all_shipments), 'message': 'Aucun EDI pour cette date'})
+
+        # Mapping delivery_name → livraison
+        def _map_livraison(delivery_name):
+            dn = (delivery_name or '').upper()
+            if 'TRANSIT' in dn:
+                return 'TRANSIT'
+            if 'STORAGE' in dn or 'STOCKAGE' in dn:
+                return 'CHEVROLET'
+            if 'CHEVRO' in dn:
+                return 'CHEVROLET'
+            if 'BREVET' in dn:
+                return 'BREVET'
+            if 'GREFFAGE' in dn:
+                return 'GREFFAGE'
+            if 'HILLEBRAND' in dn or 'GORI' in dn:
+                return 'HILLEBRAND'
+            # Mediaco, etc. → BREVET (livraison via Brevet par defaut)
+            return 'BREVET'
+
+        try:
+            from bibile.database import get_db as _get_db
+        except ImportError:
+            from database import get_db as _get_db
+        conn = _get_db(DB_PATH)
+
+        # Creer ou reutiliser l'extraction EDI pour cette date
+        ext_nom = f'EDI_{date}'
+        ext = conn.execute("SELECT id FROM extractions WHERE nom_fichier = ?", (ext_nom,)).fetchone()
+        if ext:
+            ext_id = ext['id']
+            # Supprimer les anciens enlevements EDI (sauf ceux deja assignes a des tournees)
+            conn.execute("""
+                DELETE FROM enlevements
+                WHERE extraction_id = ?
+                AND id NOT IN (SELECT enlevement_id FROM tournee_enlevements)
+            """, (ext_id,))
+        else:
+            conn.execute("""
+                INSERT INTO extractions (nom_fichier, date_creation, nb_lignes)
+                VALUES (?, ?, ?)
+            """, (ext_nom, date, len(edi_shipments)))
+            ext_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Recuperer les refs deja assignees (pour ne pas les re-creer)
+        assigned_refs = set()
+        rows = conn.execute("""
+            SELECT e.reference FROM enlevements e
+            JOIN tournee_enlevements te ON te.enlevement_id = e.id
+            WHERE e.extraction_id = ?
+        """, (ext_id,)).fetchall()
+        for r in rows:
+            assigned_refs.add(r['reference'])
+
+        # Inserer les enlevements EDI
+        inserted = 0
+        for idx, s in enumerate(edi_shipments, 1):
+            ref = s.get('transaction_ref', '') or s.get('shipment_id', '')
+            # Ne pas re-creer si deja assigne
+            if ref in assigned_refs:
+                continue
+
+            societe = (s.get('sold_by', '') or '').strip()
+            ville = (s.get('sold_by_city', '') or '').strip()
+            nb_pal = int(float(s.get('total_palettes', 0) or 0))
+            type_pal = (s.get('type_palettes', '') or '').strip()
+            poids = float(s.get('poids_total', 0) or 0)
+            nb_colis = int(float(s.get('total_colis', 0) or 0))
+            livraison = _map_livraison(s.get('delivery_name', ''))
+            telephone = ''
+            instructions = (s.get('instructions', '') or '').strip()
+
+            conn.execute("""
+                INSERT INTO enlevements
+                (extraction_id, num_enlevement, reference, societe, ville,
+                 nb_palettes, type_palettes, poids_total, nb_colis,
+                 livraison, telephone, date_enlevement)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (ext_id, idx, ref, societe, ville,
+                  nb_pal, type_pal, poids, nb_colis,
+                  livraison, telephone, date))
+            inserted += 1
+
+        # Mettre a jour le nb_lignes
+        conn.execute("UPDATE extractions SET nb_lignes = ? WHERE id = ?",
+                      (inserted + len(assigned_refs), ext_id))
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'synced': inserted,
+            'kept': len(assigned_refs),
+            'total_edi': len(edi_shipments),
+            'extraction_id': ext_id,
+        })
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
+
+
 @app.route('/api/extractions-par-date')
 def api_extractions_par_date():
     try:

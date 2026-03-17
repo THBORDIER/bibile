@@ -476,7 +476,9 @@ def auto_distribuer(db_path, date_tournee, extraction_id=None):
     for m in mappings:
         tournee_nom = m['ville_tournee'] or m['zone_tournee']
         if tournee_nom:
-            ville_to_tournee[m['ville']] = tournee_nom
+            # Stocker en UPPER pour matching insensible a la casse (EDI = casse mixte)
+            ville_key = (m['ville'] or '').strip().upper()
+            ville_to_tournee[ville_key] = tournee_nom
 
     # Récupérer les enlèvements non assignés
     if extraction_id:
@@ -499,8 +501,8 @@ def auto_distribuer(db_path, date_tournee, extraction_id=None):
     assigned = 0
 
     for e in enlevements:
-        ville = e['ville'] or ''
-        tournee_nom = ville_to_tournee.get(ville)
+        ville = (e['ville'] or '').strip()
+        tournee_nom = ville_to_tournee.get(ville.upper())
         if tournee_nom:
             if tournee_nom not in distribution:
                 distribution[tournee_nom] = []

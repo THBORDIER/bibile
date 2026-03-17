@@ -19,7 +19,7 @@ bibile/
     base.html          # Template de base (sidebar + layout dark theme + banniere mise a jour)
     index.html         # Page d'accueil (extraction)
     donnees.html       # Visualisation des donnees
-    tournees.html      # Kanban + carte des tournees + geolocalisation vehicules
+    tournees.html      # Kanban + feuille de route + carte des tournees (source EDI)
     edi.html            # Page comparaison EDI vs PDF
     facturation.html   # Generation fichier facturation Hillebrand (.xlsx)
     gestion.html       # Gestion utilisateur (zones, chauffeurs, vehicules, mapping villes)
@@ -36,7 +36,7 @@ bibile/
     js/statistiques.js # JS page statistiques (Chart.js, filtres, exports PDF/Excel)
     js/edi.js          # JS page EDI (comparaison auto, recherche libre, historique modifications, tri colonnes)
     js/facturation.js  # JS page facturation (chargement, tableau editable, generation Excel)
-    js/tournees.js     # JS Kanban (SortableJS)
+    js/tournees.js     # JS Kanban + Feuille de route + sync EDI (SortableJS)
     js/carte.js        # JS carte (Leaflet) + couche vehicules GPS
     js/gestion.js      # JS gestion (zones, chauffeurs, vehicules, mapping, autocomplete tournees)
     js/parametres.js   # JS parametres (config BDD externe + Drakkar)
@@ -138,6 +138,7 @@ build.bat              # Script de build .exe + creation ZIP release
 - `page_gestion()` - Route `/gestion` (page gestion utilisateur)
 - `api_tournee_noms()` - Route `GET /api/tournees/noms` (noms distincts pour autocomplete)
 - `api_statistiques_export()` - Route `GET /api/statistiques/export` (export Excel des stats, openpyxl)
+- `api_sync_edi()` - Route `POST /api/tournees/sync-edi` (fetch EDI Drakkar → enlevements SQLite)
 
 ## Fonctions cles (database_tournees.py)
 
@@ -174,6 +175,26 @@ Le champ `tournee_defaut` existe a deux niveaux : sur la zone (defaut) et sur le
 - La table `tournees` a une colonne `modele_id` (FK) pour tracer l'origine d'une tournee instanciee
 - Les tournees passees sont conservees en historique (navigables via le date picker)
 - Routes API : `GET /api/tournee-modeles`, `POST /api/tournee-modeles`, `DELETE /api/tournee-modeles/<id>`
+
+## Source EDI pour les tournees (v4.0.0)
+
+- **Depuis v4.0.0**, la page tournees utilise l'EDI Drakkar comme source unique des enlevements (plus le PDF)
+- Route `POST /api/tournees/sync-edi` : fetch EDI Drakkar → filtre par `pickup_date` → insere dans table `enlevements`
+- Extraction speciale `EDI_YYYY-MM-DD` creee automatiquement dans la table `extractions`
+- Mapping `delivery_name` → livraison : TRANSIT, CHEVROLET, BREVET, GREFFAGE, HILLEBRAND
+- Les enlevements deja assignes a des tournees sont preserves lors du re-sync
+- Le dropdown "Extraction" a ete remplace par un badge "Source EDI" dans la toolbar
+- **Ancien code PDF archive** (commente) dans `tournees.js` et `tournees.html` au cas ou
+- Matching ville case-insensitive dans `auto_distribuer()` : `.upper()` pour compatibilite EDI (casse mixte)
+
+## Feuille de route
+
+- Vue "Feuille de route" dans la page tournees : un tableau par tournee, format identique au fichier Excel utilisateur
+- Header : date, chauffeur, camion, telephone
+- Colonnes : N, REF, CLIENT, VILLE, PALS, TYPE, POIDS, COLIS, DESTINATION, OBSERVATION
+- Observations editables inline (click-to-edit, sauvegarde via `PUT /api/tournee-enlevements/<id>/observation`)
+- Ajout/edition d'enlevements manuels via modal (extraction "Manuel" auto-creee)
+- Impression par tournee via `window.print()`
 
 ## Page Comparaison EDI (`/edi`)
 
