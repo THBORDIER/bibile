@@ -65,8 +65,9 @@ def _get_drakkar_connection(config):
     # Fallback pymssql
     import pymssql
     _using_pyodbc = False
+    pymssql_host = host.split('\\')[0] if '\\' in host else host
     return pymssql.connect(
-        server=host,
+        server=pymssql_host,
         port=port,
         user=user,
         password=password,
@@ -74,6 +75,7 @@ def _get_drakkar_connection(config):
         login_timeout=15,
         timeout=30,
         as_dict=True,
+        tds_version='7.0',
     )
 
 
@@ -125,6 +127,15 @@ def test_drakkar_connection(config):
         conn.close()
         return True, f"Connecte via {driver_name} - {cnt} messages EDI trouves"
     except Exception as e:
+        msg = str(e)
+        host = config.get('host', '?')
+        pymssql_host = host.split('\\')[0] if '\\' in host else host
+        port = config.get('port', 49372)
+        detail = f" [host={pymssql_host}, port={port}, driver={'pyodbc' if _using_pyodbc else 'pymssql'}, erreur={msg}]"
+        if 'Adaptive Server' in msg or 'connection failed' in msg.lower() or 'Network' in msg:
+            return False, f"Serveur Drakkar injoignable.{detail}"
+        elif 'Login failed' in msg or 'login' in msg.lower():
+            return False, f"Identifiants Drakkar refuses.{detail}"
         return False, f"Erreur connexion Drakkar: {e}"
 
 

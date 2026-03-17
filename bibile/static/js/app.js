@@ -90,32 +90,26 @@ generateBtn.addEventListener('click', async () => {
             body: JSON.stringify({ texte: text })
         });
 
-        // Check if the response is JSON (duplicate detection) or blob (Excel)
-        const contentType = response.headers.get('Content-Type') || '';
-
-        if (contentType.includes('application/json')) {
-            const data = await response.json();
-
-            if (data.erreur) {
-                throw new Error(data.erreur);
-            }
-
-            if (data.doublons) {
-                // Show duplicate modal
-                hideProgress();
-                generateBtn.disabled = false;
-                generateBtn.innerHTML = 'Générer le fichier Excel';
-                showDuplicateModal(data);
-                return;
-            }
-        }
+        const data = await response.json();
 
         if (!response.ok) {
-            throw new Error('Erreur lors de la génération');
+            throw new Error(data.erreur || 'Erreur lors de la génération');
         }
 
-        // Download the Excel blob
-        downloadBlob(response);
+        if (data.doublons) {
+            // Show duplicate modal
+            hideProgress();
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = 'Générer le fichier Excel';
+            showDuplicateModal(data);
+            return;
+        }
+
+        if (data.success && data.fichier) {
+            // Ouvrir le fichier directement dans Excel (compatible pywebview)
+            fetch('/ouvrir/' + encodeURIComponent(data.fichier));
+            showStatus('Fichier Excel généré avec succès ! Ouverture dans Excel...', 'success');
+        }
 
     } catch (error) {
         console.error('Error:', error);
@@ -297,15 +291,13 @@ duplicateModal.addEventListener('click', async (e) => {
             body: JSON.stringify({ session_id: sessionId, action: action })
         });
 
-        const contentType = response.headers.get('Content-Type') || '';
-        if (contentType.includes('application/json')) {
-            const data = await response.json();
-            if (data.erreur) throw new Error(data.erreur);
+        const data = await response.json();
+        if (!response.ok || data.erreur) throw new Error(data.erreur || 'Erreur lors de la confirmation');
+
+        if (data.success && data.fichier) {
+            fetch('/ouvrir/' + encodeURIComponent(data.fichier));
+            showStatus('Fichier Excel généré avec succès ! Ouverture dans Excel...', 'success');
         }
-
-        if (!response.ok) throw new Error('Erreur lors de la confirmation');
-
-        await downloadBlob(response);
 
     } catch (error) {
         console.error('Error:', error);

@@ -156,9 +156,32 @@ a:hover {
     padding: 16px 20px;
     border-top: 1px solid var(--border-color);
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     -webkit-app-region: no-drag;
+}
+
+.btn-quit {
+    width: 100%;
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    transition: all 0.2s;
+    margin-bottom: 6px;
+}
+
+.btn-quit:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border-color: #ef4444;
 }
 
 .version-badge {

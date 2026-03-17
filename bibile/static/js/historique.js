@@ -80,9 +80,9 @@ function createHistoryItem(item) {
             </div>
         </div>
         <div class="history-actions">
-            <a href="/telecharger/${item.fichier}" class="btn-small btn-download">
+            <a href="#" onclick="fetch('/ouvrir/${item.fichier}'); return false;" class="btn-small btn-download">
                 <span>⬇️</span>
-                Télécharger
+                Ouvrir
             </a>
             <a href="/log/${item.log_fichier}" class="btn-small btn-log" target="_blank">
                 <span>📋</span>

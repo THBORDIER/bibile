@@ -203,14 +203,9 @@ async function loadExtVehicles() {
             return;
         }
 
-        // Charger les selections actuelles
-        const syncResp = await fetch('/api/external-db/vehicules');
-        const syncData = await syncResp.json();
-        const selectedIds = new Set((syncData.vehicules || []).filter(v => v.selectionne).map(v => v.externe_id));
-
         container.innerHTML = vehicles.map(v => `
             <label class="ext-driver-item">
-                <input type="checkbox" class="ext-vehicle-check" data-id="${escapeAttr(v.externe_id)}" data-immat="${escapeAttr(v.immatriculation)}" ${selectedIds.has(v.externe_id) ? 'checked' : ''}>
+                <input type="checkbox" class="ext-vehicle-check" data-id="${escapeAttr(v.externe_id)}" data-immat="${escapeAttr(v.immatriculation)}" ${v.selectionne ? 'checked' : ''}>
                 ${escapeHtml(v.immatriculation)}
             </label>
         `).join('') + '<br><button class="btn btn-primary btn-sm" onclick="saveExtVehicleSelection()">Enregistrer la selection</button>';
@@ -221,6 +216,7 @@ async function loadExtVehicles() {
 
 async function saveExtVehicleSelection() {
     const checks = document.querySelectorAll('.ext-vehicle-check');
+    // Envoie tous les vehicules visibles avec leur etat actuel
     const selections = Array.from(checks).map(ch => ({
         externe_id: ch.dataset.id,
         immatriculation: ch.dataset.immat,

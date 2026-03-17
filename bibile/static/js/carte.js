@@ -13,6 +13,9 @@ let vehiclePositions = [];  // Positions live des véhicules (partagé avec tour
 let routeCache = {};        // Cache des itinéraires OSRM par clé de points
 let routeInfos = {};        // Distance/durée par tournée id
 
+// Dépôt Transport Brevet (départ et arrivée de chaque tournée)
+const DEPOT = [46.78106, 4.79925];
+
 // Couleurs pour les tournées (cycle)
 const TOUR_COLORS = [
     '#4493f8', '#3fb950', '#e3952d', '#f85149',
@@ -286,6 +289,18 @@ async function updateMap(tournees, unassigned) {
     const legendHtml = [];
     const bounds = [];
 
+    // Marqueur du dépôt Transport Brevet
+    const depotIcon = L.divIcon({
+        className: 'depot-marker',
+        html: '<div style="background:#fff;border:3px solid #f85149;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;color:#f85149;">D</div>',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+    });
+    const depotMarker = L.marker(DEPOT, { icon: depotIcon })
+        .bindPopup('<strong>Dépôt Transport Brevet</strong><br>Départ / Arrivée');
+    markersLayer.addLayer(depotMarker);
+    bounds.push(DEPOT);
+
     // Enlèvements non assignés (gris)
     unassigned.forEach(e => {
         if (e.lat && e.lon) {
@@ -316,8 +331,10 @@ async function updateMap(tournees, unassigned) {
         });
 
         // Itinéraire OSRM (async) avec fallback polyline
-        if (points.length >= 2) {
-            const promise = getRoute(points).then(route => {
+        // Dépôt en départ et arrivée
+        const routePoints = points.length > 0 ? [DEPOT, ...points, DEPOT] : [];
+        if (routePoints.length >= 3) {
+            const promise = getRoute(routePoints).then(route => {
                 if (route) {
                     // GeoJSON coordinates sont [lon, lat], Leaflet les gère
                     const layer = L.geoJSON(route.geometry, {
@@ -330,7 +347,7 @@ async function updateMap(tournees, unassigned) {
                     };
                 } else {
                     // Fallback polyline droite
-                    const polyline = L.polyline(points, {
+                    const polyline = L.polyline(routePoints, {
                         color, weight: 3, opacity: 0.7, dashArray: '5, 10',
                     });
                     routesLayer.addLayer(polyline);

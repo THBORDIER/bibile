@@ -80,7 +80,9 @@ build.bat              # Script de build .exe + creation ZIP release
 - Champ `SourceCNX` : XML Hillebrand Transport Instructions (namespace `http://JFH.Interfaces2013.Schemas.Schemas.HillebrandTransportInstructionsMessage_2.0`)
 - Parse XML : extrait shipments avec expediteur, colis, palettes, poids, dates, destinations
 - Deduplication : si un meme `shipment_id` apparait dans plusieurs messages EDI (MAJ en journee), seul le plus recent est conserve
-- Connexion pyodbc (TrustServerCertificate=yes) avec fallback pymssql
+- Connexion pyodbc (TrustServerCertificate=yes) avec fallback pymssql (TDS 7.0 obligatoire pour pymssql)
+- **pymssql** : ne gere pas les instances nommees (`host\instance`), le code extrait le hostname seul car le port est explicite
+- **Prerequis poste client** : pas de driver ODBC requis, pymssql suffit. Si ODBC Driver 17/18 est present, pyodbc est utilise en priorite
 - Fix double-encodage UTF-8 : `text.encode('latin-1').decode('utf-8')` pour NTEXT pyodbc
 - **`bibile/edi_comparator.py`** : rapprochement EDI vs PDF par `num_enlevement`/`RefMessage`
 - Config stockee dans table `external_db_config` avec `nom='drakkar'`
@@ -210,8 +212,8 @@ gh release create v3.7.0 dist/Bibile.zip --title "v3.7.0" --notes "Changelog"
 
 ## Donnees de test
 
-- `Date 06fevr.2026 0906.txt` - 38 enlevements, 4 livraisons
-- `Date 10fevr.2026.txt` - 36 enlevements, 4 livraisons
+- `donnees/Date 06fevr.2026 0906.txt` - 38 enlevements, 4 livraisons
+- `donnees/Date 10fevr.2026.txt` - 36 enlevements, 4 livraisons
 
 ## Problemes connus
 

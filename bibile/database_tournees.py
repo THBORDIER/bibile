@@ -668,7 +668,12 @@ def list_vehicules_sync(db_path):
 
 
 def save_vehicules_sync_selection(db_path, selections):
-    """selections = [{externe_id, immatriculation, selectionne}, ...]"""
+    """selections = [{externe_id, immatriculation, selectionne}, ...]
+
+    Met a jour vehicules_sync ET synchronise la table vehicules :
+    - vehicule coche → cree/reactive dans vehicules
+    - vehicule decoche → desactive dans vehicules
+    """
     conn = get_db(db_path)
     for s in selections:
         existing = conn.execute(
@@ -684,6 +689,29 @@ def save_vehicules_sync_selection(db_path, selections):
                 "INSERT INTO vehicules_sync (externe_id, immatriculation, selectionne) VALUES (?, ?, ?)",
                 (s['externe_id'], s['immatriculation'], s.get('selectionne', 0))
             )
+
+        # Synchroniser avec la table vehicules
+        selectionne = s.get('selectionne', 0)
+        veh = conn.execute(
+            "SELECT id FROM vehicules WHERE externe_id = ?", (s['externe_id'],)
+        ).fetchone()
+        if selectionne:
+            if veh:
+                conn.execute(
+                    "UPDATE vehicules SET actif = 1, immatriculation = ? WHERE externe_id = ?",
+                    (s['immatriculation'], s['externe_id'])
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO vehicules (immatriculation, externe_id, actif) VALUES (?, ?, 1)",
+                    (s['immatriculation'], s['externe_id'])
+                )
+        else:
+            if veh:
+                conn.execute(
+                    "UPDATE vehicules SET actif = 0 WHERE externe_id = ?",
+                    (s['externe_id'],)
+                )
     conn.commit()
     conn.close()
 

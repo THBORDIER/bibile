@@ -43,10 +43,8 @@ bibile/historique/*.xlsx
 bibile/*.db
 *.db
 
-# Fichiers de test/donnees temporaires a la racine
-*.xlsx
-*.pdf
-Date*.txt
+# Fichiers de donnees (PDF, Excel, textes de test)
+donnees/
 nul
 
 # Fichiers sensibles (identifiants BDD, etc.)

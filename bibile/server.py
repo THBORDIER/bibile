@@ -967,17 +967,18 @@ def _parse_and_log(texte):
 
 
 def _finalize_generation(lignes_tableau, nom_excel, chemin_excel, chemin_log, log_contenu, date_doc=None):
-    """Génère l'Excel, sauvegarde en DB, et retourne le fichier."""
+    """Génère l'Excel, sauvegarde en DB, ouvre le fichier et retourne le nom."""
     generer_excel(lignes_tableau, chemin_excel, chemin_log)
     # Utiliser la date du document si disponible, sinon la date actuelle
     extraction_date = date_doc or datetime.now()
     save_extraction(DB_PATH, nom_excel, extraction_date, lignes_tableau, log_contenu)
-    return send_file(
-        chemin_excel,
-        as_attachment=True,
-        download_name=nom_excel,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    # Ouvrir le fichier directement dans Excel (pywebview ne gère pas les downloads)
+    try:
+        import os as _os
+        _os.startfile(str(Path(chemin_excel).resolve()))
+    except Exception as e:
+        print(f"Impossible d'ouvrir le fichier: {e}")
+    return jsonify({'success': True, 'fichier': nom_excel})
 
 
 @app.route('/generer', methods=['POST'])
@@ -1056,7 +1057,9 @@ def generer_confirmer():
         session_id = data.get('session_id')
         action = data.get('action')  # 'update', 'add_all', 'skip_duplicates'
 
+        print(f"[confirmer] session_id={session_id}, action={action}, sessions={list(_sessions_temp.keys())}")
         if session_id not in _sessions_temp:
+            print(f"[confirmer] SESSION EXPIRÉE - id '{session_id}' non trouvé")
             return jsonify({'erreur': 'Session expirée. Veuillez relancer la génération.'}), 400
 
         session = _sessions_temp.pop(session_id)
@@ -1085,12 +1088,13 @@ def generer_confirmer():
                 # Que des mises à jour, générer quand même l'Excel pour téléchargement
                 generer_excel(lignes_tableau, chemin_excel, chemin_log)
 
-            return send_file(
-                chemin_excel,
-                as_attachment=True,
-                download_name=nom_excel,
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
+            # Ouvrir le fichier directement dans Excel
+            try:
+                import os as _os
+                _os.startfile(str(Path(chemin_excel).resolve()))
+            except Exception as e:
+                print(f"Impossible d'ouvrir le fichier: {e}")
+            return jsonify({'success': True, 'fichier': nom_excel})
 
         elif action == 'add_all':
             # Tout ajouter comme nouvelle extraction (comportement classique)
@@ -1186,6 +1190,30 @@ def api_donnees(filename):
         import traceback
         print(f"Erreur lecture données: {traceback.format_exc()}")
         return jsonify({'erreur': f'Erreur lecture fichier: {str(e)}'}), 500
+
+
+@app.route('/ouvrir/<filename>')
+def ouvrir_fichier(filename):
+    """Ouvre le fichier Excel directement (compatible pywebview)."""
+    try:
+        chemin_excel = HISTORIQUE_DIR / filename
+        if not chemin_excel.exists():
+            # Générer depuis la DB si pas sur disque
+            df = generate_excel_from_db(DB_PATH, filename)
+            if df is None:
+                return jsonify({'erreur': 'Fichier non trouvé'}), 404
+            with pd.ExcelWriter(chemin_excel, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Enlèvements')
+                worksheet = writer.sheets['Enlèvements']
+                for col, w in {'A':15,'B':18,'C':35,'D':25,'E':10,'F':15,'G':12,'H':12,'I':18,'J':18}.items():
+                    worksheet.column_dimensions[col].width = w
+                worksheet.auto_filter.ref = worksheet.dimensions
+
+        import os
+        os.startfile(str(chemin_excel.resolve()))
+        return jsonify({'success': True, 'chemin': str(chemin_excel.resolve())})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
 
 
 @app.route('/telecharger/<filename>')
