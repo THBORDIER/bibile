@@ -4,12 +4,12 @@
  */
 
 let _lastCompareDate = null;
+let _lastCompareData = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     const picker = document.getElementById('ediDatePicker');
     picker.value = new Date().toISOString().split('T')[0];
 
-    document.getElementById('btnCompare').addEventListener('click', doCompare);
     document.getElementById('btnViewEdiRaw').addEventListener('click', viewEdiRaw);
     document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
 
@@ -26,17 +26,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btnTodayEdi').addEventListener('click', () => {
         picker.value = new Date().toISOString().split('T')[0];
+        doCompare();
     });
     document.getElementById('btnPrevDayEdi').addEventListener('click', () => {
         const d = new Date(picker.value);
         d.setDate(d.getDate() - 1);
         picker.value = d.toISOString().split('T')[0];
+        doCompare();
     });
     document.getElementById('btnNextDayEdi').addEventListener('click', () => {
         const d = new Date(picker.value);
         d.setDate(d.getDate() + 1);
         picker.value = d.toISOString().split('T')[0];
+        doCompare();
     });
+    picker.addEventListener('change', () => doCompare());
+
+    // Recherche libre
+    const searchInput = document.getElementById('ediSearchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', filterTable);
+    }
+
+    // Chargement initial
+    doCompare();
 });
 
 
@@ -76,6 +89,12 @@ async function doCompare() {
         }
 
         document.getElementById('ediNotConfigured').classList.add('hidden');
+        _lastCompareData = data;
+        const _histRefs = new Set(data.refs_with_history || []);
+
+        // Reset search
+        const searchInput = document.getElementById('ediSearchInput');
+        if (searchInput) searchInput.value = '';
 
         // Stats
         const s = data.stats;
@@ -104,7 +123,7 @@ async function doCompare() {
             const el = document.getElementById('ediDebugInfo');
             if (el) {
                 const dates = dbg.edi_pickup_dates ? dbg.edi_pickup_dates.join(', ') : '-';
-                el.innerHTML = `PDF: ${dbg.nb_pdf_enlevements} enl. (${esc(dbg.pdf_date_range)}) | EDI: ${dbg.nb_edi_shipments}/${dbg.nb_edi_total_fetched} (pickup: ${esc(dates)})`;
+                el.innerHTML = `PDF: ${dbg.nb_pdf_enlevements} enl. (${esc(dbg.pdf_date_range)}) | EDI: ${dbg.nb_edi_shipments}/${dbg.nb_edi_total_fetched} (pickup: ${esc(dates)}) | Hist: ${dbg.nb_edi_with_history || 0} EDI, ${dbg.nb_refs_with_history || 0} refs`;
                 el.classList.remove('hidden');
             }
         }
@@ -122,10 +141,15 @@ async function doCompare() {
                 ? m.ecarts.map(e => `${e.champ}: PDF=${e.pdf}, EDI=${e.edi}`).join('\n')
                 : '';
             const matchedBy = m.matched_by ? `<span class="matched-by">${esc(m.matched_by)}</span>` : '';
+            const ref_m = esc(m.reference || m.num_enlevement);
+            const edi_ref_m = m.edi_ref || '';
+            const soc_m = esc(m.societe);
+            const histBtn_m = _histRefs.has(edi_ref_m)
+                ? `<button class="btn-history" onclick="showHistory('${esc(edi_ref_m)}')" title="Historique">&#128337;</button>` : '';
             tbody.innerHTML += `<tr class="${statusClass}" title="${esc(ecartTitle)}">
                 <td><span class="edi-badge ${statusClass}">${statusText}</span></td>
-                <td>${esc(m.reference || m.num_enlevement)}</td>
-                <td>${esc(m.societe)}</td>
+                <td>${ref_m}</td>
+                <td>${soc_m}</td>
                 <td>${esc(m.edi_societe)}</td>
                 <td><span class="score-badge ${scoreClass}">${m.score}%</span> ${matchedBy}</td>
                 <td>${m.pdf.nb_palettes}</td>
@@ -134,6 +158,7 @@ async function doCompare() {
                 <td>${m.edi.total_poids}</td>
                 <td>${m.pdf.nb_colis}</td>
                 <td>${m.edi.total_colis}</td>
+                <td>${histBtn_m}</td>
             </tr>`;
             // Sous-ligne ecarts si present
             if (m.ecarts && m.ecarts.length) {
@@ -141,17 +166,21 @@ async function doCompare() {
                     `<span class="ecart-detail">${e.champ}: PDF <b>${e.pdf}</b> / EDI <b>${e.edi}</b></span>`
                 ).join(' ');
                 tbody.innerHTML += `<tr class="ecart-detail-row">
-                    <td colspan="11">${details}</td>
+                    <td colspan="12">${details}</td>
                 </tr>`;
             }
         });
 
         // PDF seul
         data.pdf_only.forEach(p => {
+            const ref_p = esc(p.reference || p.num_enlevement);
+            const soc_p = esc(p.societe);
+            const histBtn_p = _histRefs.has(p.reference || p.num_enlevement)
+                ? `<button class="btn-history" onclick="showHistory('${ref_p}')" title="Historique">&#128337;</button>` : '';
             tbody.innerHTML += `<tr class="edi-pdf-only">
                 <td><span class="edi-badge edi-pdf-only">PDF seul</span></td>
-                <td>${esc(p.reference || p.num_enlevement)}</td>
-                <td>${esc(p.societe)}</td>
+                <td>${ref_p}</td>
+                <td>${soc_p}</td>
                 <td>-</td>
                 <td>-</td>
                 <td>${p.nb_palettes}</td>
@@ -160,6 +189,7 @@ async function doCompare() {
                 <td>-</td>
                 <td>${p.nb_colis}</td>
                 <td>-</td>
+                <td>${histBtn_p}</td>
             </tr>`;
         });
 
@@ -176,9 +206,12 @@ async function doCompare() {
         // EDI T01 seul (dans le tableau principal)
         ediT01.forEach(e => {
             const ediInfo = [e.sold_by, e.delivery_city, e.delivery_name].filter(Boolean).join(' | ');
+            const ref_e = e.transaction_ref || e.shipment_id;
+            const histBtn_e = _histRefs.has(ref_e)
+                ? `<button class="btn-history" onclick="showHistory('${esc(ref_e)}')" title="Historique">&#128337;</button>` : '';
             tbody.innerHTML += `<tr class="edi-edi-only">
                 <td><span class="edi-badge edi-edi-only">EDI seul</span></td>
-                <td>${esc(e.shipment_id || e.transaction_ref)}</td>
+                <td>${esc(ref_e)}</td>
                 <td>-</td>
                 <td title="${esc(ediInfo)}">${esc(e.sold_by)}</td>
                 <td>-</td>
@@ -188,12 +221,13 @@ async function doCompare() {
                 <td>${e.total_poids}</td>
                 <td>-</td>
                 <td>${e.total_colis}</td>
+                <td>${histBtn_e}</td>
             </tr>`;
         });
 
         // Diagnostic: meilleurs scores rejetes (sous le seuil)
         if (data.best_rejected && data.best_rejected.length) {
-            tbody.innerHTML += `<tr class="ecart-detail-row"><td colspan="11" style="text-align:center; color:#8b949e; padding: 8px;">
+            tbody.innerHTML += `<tr class="ecart-detail-row"><td colspan="12" style="text-align:center; color:#8b949e; padding: 8px;">
                 <em>Meilleurs scores rejetes (sous le seuil) :</em>
                 ${data.best_rejected.map(r => `${esc(r.pdf_societe)} / ${esc(r.edi_sold_by)} = ${r.score}pts (${esc(r.matched_by)})`).join(' | ')}
             </td></tr>`;
@@ -305,6 +339,84 @@ function esc(str) {
     const div = document.createElement('div');
     div.textContent = String(str);
     return div.innerHTML;
+}
+
+
+// ===== Historique des modifications =====
+
+function showHistory(reference) {
+    const modal = document.getElementById('historyModal');
+    const body = document.getElementById('historyBody');
+    const title = document.getElementById('historyTitle');
+    title.textContent = `Historique : ${reference}`;
+
+    // Recuperer les versions depuis les donnees deja chargees
+    const data = _lastCompareData;
+    const versions = data && data.edi_histories ? data.edi_histories[reference] : null;
+
+    if (!versions || versions.length < 2) {
+        body.innerHTML = '<p style="color: #8b949e;">Aucune modification trouvee.</p>';
+        modal.classList.remove('hidden');
+        return;
+    }
+
+    const fields = ['societe', 'ville', 'palettes', 'type_palettes', 'poids', 'colis', 'livraison', 'pickup'];
+    const labels = ['Societe', 'Ville', 'Palettes', 'Type', 'Poids', 'Colis', 'Livraison', 'Date enlev.'];
+
+    let html = '<table class="data-table" style="font-size: 13px;"><thead><tr>';
+    html += '<th>Date MAJ</th>';
+    labels.forEach(l => html += `<th>${l}</th>`);
+    html += '</tr></thead><tbody>';
+
+    versions.forEach((v, idx) => {
+        const dt = v.date ? new Date(v.date).toLocaleString('fr-FR') : '-';
+        const prev = idx > 0 ? versions[idx - 1] : null;
+        const isLatest = idx === versions.length - 1;
+        html += `<tr${isLatest ? ' style="background:#1a2233;"' : ''}>`;
+        html += `<td>${esc(dt)}${isLatest ? ' <b>(actuel)</b>' : ''}</td>`;
+        fields.forEach(f => {
+            const val = v[f] != null ? String(v[f]) : '';
+            const changed = prev && String(prev[f] || '') !== val;
+            html += `<td${changed ? ' style="color:#3fb950; font-weight:bold;"' : ''}>${esc(val)}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+    modal.classList.remove('hidden');
+}
+
+function closeHistoryModal() {
+    document.getElementById('historyModal').classList.add('hidden');
+}
+
+
+// ===== Filtrage par recherche libre =====
+
+function filterTable() {
+    const query = (document.getElementById('ediSearchInput').value || '').toLowerCase().trim();
+    // Filter rows in T01 table (cols: 1=Reference, 2=Societe PDF, 3=Societe EDI)
+    const tbody = document.getElementById('ediResultBody');
+    if (!tbody) return;
+    const rows = tbody.querySelectorAll('tr');
+    rows.forEach(row => {
+        if (row.classList.contains('ecart-detail-row')) {
+            // Detail rows follow their parent — handled below
+            return;
+        }
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 4) { row.style.display = ''; return; }
+        const ref = (cells[1]?.textContent || '').toLowerCase();
+        const socPdf = (cells[2]?.textContent || '').toLowerCase();
+        const socEdi = (cells[3]?.textContent || '').toLowerCase();
+        const match = !query || ref.includes(query) || socPdf.includes(query) || socEdi.includes(query);
+        row.style.display = match ? '' : 'none';
+        // Show/hide following ecart-detail-row
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains('ecart-detail-row')) {
+            next.style.display = match ? '' : 'none';
+        }
+    });
 }
 
 

@@ -228,6 +228,26 @@ def init_db(db_path):
             UNIQUE(id_ligne)
         );
         CREATE INDEX IF NOT EXISTS idx_edi_date ON edi_messages(date_trans);
+
+        -- Historique des modifications d'enlevements
+        CREATE TABLE IF NOT EXISTS enlevements_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            enlevement_id INTEGER NOT NULL,
+            reference TEXT,
+            societe TEXT,
+            ville TEXT,
+            nb_palettes REAL DEFAULT 0,
+            type_palettes TEXT,
+            poids_total REAL DEFAULT 0,
+            nb_colis REAL DEFAULT 0,
+            livraison TEXT,
+            telephone TEXT,
+            date_enlevement TEXT,
+            source TEXT DEFAULT 'pdf',
+            changed_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_eh_enlevement ON enlevements_history(enlevement_id);
+        CREATE INDEX IF NOT EXISTS idx_eh_reference ON enlevements_history(reference);
     """)
     conn.commit()
 
@@ -341,6 +361,17 @@ def update_enlevements(db_path, lignes_tableau, duplicates):
             continue
 
         enlevement_id = duplicates[key]['enlevement_id']
+        # Sauvegarder l'état actuel dans l'historique avant écrasement
+        old = conn.execute("SELECT * FROM enlevements WHERE id = ?", (enlevement_id,)).fetchone()
+        if old:
+            conn.execute("""
+                INSERT INTO enlevements_history
+                (enlevement_id, reference, societe, ville, nb_palettes, type_palettes,
+                 poids_total, nb_colis, livraison, telephone, date_enlevement, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pdf')
+            """, (enlevement_id, old['reference'], old['societe'], old['ville'],
+                  old['nb_palettes'], old['type_palettes'], old['poids_total'],
+                  old['nb_colis'], old['livraison'], old['telephone'], old['date_enlevement']))
         conn.execute("""
             UPDATE enlevements SET
                 reference = ?, ville = ?, nb_palettes = ?, type_palettes = ?,
@@ -364,6 +395,41 @@ def update_enlevements(db_path, lignes_tableau, duplicates):
     conn.commit()
     conn.close()
     return updated
+
+
+def get_enlevement_history(db_path, enlevement_id=None, reference=None, societe=None):
+    """Récupère l'historique des modifications d'un enlèvement.
+
+    On peut chercher par enlevement_id, ou par reference+societe (plus flexible).
+    Retourne la liste des anciennes versions, plus récentes en premier.
+    """
+    conn = get_db(db_path)
+    if enlevement_id:
+        rows = conn.execute("""
+            SELECT h.*, e.num_enlevement FROM enlevements_history h
+            LEFT JOIN enlevements e ON e.id = h.enlevement_id
+            WHERE h.enlevement_id = ?
+            ORDER BY h.changed_at DESC
+        """, (enlevement_id,)).fetchall()
+    elif reference and societe:
+        rows = conn.execute("""
+            SELECT h.*, e.num_enlevement FROM enlevements_history h
+            LEFT JOIN enlevements e ON e.id = h.enlevement_id
+            WHERE h.reference LIKE ? AND h.societe LIKE ?
+            ORDER BY h.changed_at DESC
+        """, (f'%{reference}%', f'%{societe}%')).fetchall()
+    elif reference:
+        rows = conn.execute("""
+            SELECT h.*, e.num_enlevement FROM enlevements_history h
+            LEFT JOIN enlevements e ON e.id = h.enlevement_id
+            WHERE h.reference LIKE ?
+            ORDER BY h.changed_at DESC
+        """, (f'%{reference}%',)).fetchall()
+    else:
+        conn.close()
+        return []
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def save_extraction(db_path, nom_fichier, date_creation, lignes_tableau, log_contenu=None):

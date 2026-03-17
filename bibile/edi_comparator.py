@@ -223,6 +223,7 @@ def compare_edi_pdf(edi_shipments, pdf_enlevements):
             'societe': pdf.get('societe', ''),
             'edi_societe': edi.get('sold_by', ''),
             'shipment_id': edi.get('shipment_id', ''),
+            'edi_ref': edi.get('transaction_ref', '') or edi.get('shipment_id', ''),
             'score': score,
             'matched_by': ' + '.join(matched_by),
             'pdf': {

@@ -361,6 +361,7 @@ def fetch_edi_parsed(config, date_from=None, date_to=None):
     """
     messages = fetch_edi_messages(config, date_from=date_from, date_to=date_to)
     seen_shipments = {}
+    _edi_all_versions = {}  # shipment_id -> list[dict] (toutes les versions)
 
     for msg in messages:
         source = msg.get('SourceCNX', '')
@@ -372,9 +373,21 @@ def fetch_edi_parsed(config, date_from=None, date_to=None):
             s['date_trans'] = msg.get('Date_Trans', '')
             s['fich_suiv'] = msg.get('Fich_Suiv', '')
             sid = s.get('shipment_id', '')
-            if sid and sid not in seen_shipments:
-                seen_shipments[sid] = s
-            elif not sid:
+            if sid:
+                if sid not in _edi_all_versions:
+                    _edi_all_versions[sid] = []
+                _edi_all_versions[sid].append(s)
+                if sid not in seen_shipments:
+                    seen_shipments[sid] = s
+            else:
                 seen_shipments[f'_no_id_{msg.get("Id_Ligne")}'] = s
 
-    return list(seen_shipments.values())
+    result = list(seen_shipments.values())
+    # Attacher les anciennes versions aux shipments qui en ont
+    for s in result:
+        sid = s.get('shipment_id', '')
+        versions = _edi_all_versions.get(sid, [])
+        if len(versions) > 1:
+            s['_edi_history'] = versions[1:]  # tout sauf le plus recent
+
+    return result

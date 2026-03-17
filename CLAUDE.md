@@ -33,7 +33,7 @@ bibile/
     js/donnees.js      # JS page donnees
     js/historique.js   # JS page historique
     js/statistiques.js # JS page statistiques (Chart.js, filtres, exports PDF/Excel)
-    js/edi.js          # JS page EDI (comparaison, tri colonnes)
+    js/edi.js          # JS page EDI (comparaison auto, recherche libre, historique modifications, tri colonnes)
     js/tournees.js     # JS Kanban (SortableJS)
     js/carte.js        # JS carte (Leaflet) + couche vehicules GPS
     js/gestion.js      # JS gestion (zones, chauffeurs, vehicules, mapping, autocomplete tournees)
@@ -84,10 +84,13 @@ build.bat              # Script de build .exe + creation ZIP release
 - **pymssql** : ne gere pas les instances nommees (`host\instance`), le code extrait le hostname seul car le port est explicite
 - **Prerequis poste client** : pas de driver ODBC requis, pymssql suffit. Si ODBC Driver 17/18 est present, pyodbc est utilise en priorite
 - Fix double-encodage UTF-8 : `text.encode('latin-1').decode('utf-8')` pour NTEXT pyodbc
-- **`bibile/edi_comparator.py`** : rapprochement EDI vs PDF par `num_enlevement`/`RefMessage`
+- **`bibile/edi_comparator.py`** : rapprochement EDI vs PDF par scoring multi-criteres (nom fuzzy, ville, poids, reference croisee)
+- **IMPORTANT** : le rapprochement se fait TOUJOURS par **reference** (ex: `USRF41070`, `FRBC78660`) et JAMAIS par numero d'enlevement (compteur incremental interne au PDF, sans valeur de rapprochement)
 - Config stockee dans table `external_db_config` avec `nom='drakkar'`
 - Donnees fetched live (pas de cache local) — chaque requete interroge Drakkar directement
-- Routes API : `GET/POST /api/drakkar/config`, `POST /api/drakkar/test`, `GET /api/drakkar/edi`, `GET /api/drakkar/stats`, `GET /api/drakkar/compare`, `GET /api/drakkar/compare/export`
+- Historique EDI : `fetch_edi_parsed()` conserve toutes les versions par `shipment_id` (`_edi_history`), affichees dans un modal avec surbrillance des champs modifies
+- Deduplication PDF pour la comparaison : prend l'extraction principale (plus d'entrees pour la date), puis ajoute les supplements non couverts — evite les doublons entre PDFs unitaires et PDF principal
+- Routes API : `GET/POST /api/drakkar/config`, `POST /api/drakkar/test`, `GET /api/drakkar/edi`, `GET /api/drakkar/stats`, `GET /api/drakkar/compare`, `GET /api/drakkar/compare/export`, `GET /api/enlevements/history`
 
 ## Connexion BDD externe (DBI SQL Server Azure)
 
@@ -112,6 +115,7 @@ build.bat              # Script de build .exe + creation ZIP release
 - Table `zones` : zones geographiques (nom, tournee_defaut, couleur)
 - Table `ville_zone_mapping` : mapping ville -> zone (+ coordonnees GPS)
 - Table `edi_messages` : messages EDI caches (id_ligne, source_cnx, date_sync)
+- Table `enlevements_history` : historique des modifications (source 'pdf' ou 'edi', changed_at, anciennes valeurs)
 - Table `external_db_config` : configuration connexion BDD externe + Drakkar (nom='drakkar')
 - Table `chauffeurs_sync` : selection des chauffeurs a synchroniser
 - Table `donnees_transport` : donnees synchro (km, conso, duree par jour) — colonnes ajoutees par migration ALTER TABLE
@@ -124,7 +128,8 @@ build.bat              # Script de build .exe + creation ZIP release
 - `extraire_totaux_livraisons(texte)` - Extrait totaux livraisons + mapping destinataires
 - `controler_totaux(...)` - Controle qualite (compare extrait vs attendu)
 - `extraire_info_enlevement(lignes, index, mapping)` - Extraction d'un enlevement
-- `parser_texte(texte, log_file)` - Orchestrateur principal
+- `_parse_single_enlevement(lignes, log_file)` - Fallback pour PDF "Instructions d'enlevement" (format unique)
+- `parser_texte(texte, log_file)` - Orchestrateur principal (essaie multi-enlevements, fallback single)
 - `generer_excel(lignes, nom, log_file)` - Generation Excel avec openpyxl
 - `init_sync_manager()` - Demarre le SyncManager pour la synchro BDD externe
 - `inject_version()` - Context processor Jinja injectant `version` dans tous les templates
@@ -168,6 +173,18 @@ Le champ `tournee_defaut` existe a deux niveaux : sur la zone (defaut) et sur le
 - Les tournees passees sont conservees en historique (navigables via le date picker)
 - Routes API : `GET /api/tournee-modeles`, `POST /api/tournee-modeles`, `DELETE /api/tournee-modeles/<id>`
 
+## Page Comparaison EDI (`/edi`)
+
+- Chargement automatique au changement de date (pas de bouton "Comparer")
+- Onglets : Enlevements T01 | Autres transports T02+
+- Recherche libre en temps reel sur reference, societe PDF, societe EDI
+- Stats en haut : nb PDF, nb EDI, correspondances, ecarts, taux %
+- Tableau : statut (OK/Ecart/PDF seul/EDI seul), refs, societes, score matching, palettes/poids/colis
+- Bouton historique 🕓 sur les refs ayant des modifications EDI reelles (champs differents entre versions)
+- Modal historique : toutes versions chronologiques, champs modifies en vert, version actuelle marquee
+- Export Excel de la comparaison
+- Debug info (nb shipments, dates, sources)
+
 ## Page Statistiques
 
 - 5 cartes totaux (extractions, enlevements, palettes, poids, colis)
@@ -210,10 +227,53 @@ build.bat
 gh release create v3.7.0 dist/Bibile.zip --title "v3.7.0" --notes "Changelog"
 ```
 
+## Circuit utilisateur et correlation des donnees
+
+Le circuit actuel de l'utilisateur Benjamin est : **PDF → Excel (manuel)**. L'EDI n'est pas utilise directement, il sert de controle/verification.
+
+1. **PDF Hillebrand** : fichier "Instructions de transport" recu quotidiennement, contient tous les enlevements du jour
+2. **Excel utilisateur** : fichier `HILLEBRAND RAMASSE LOCALE MATRISSE.xlsx` avec un onglet par vehicule (ex: GL-530-TV, HE-097-ZH), rempli manuellement depuis le PDF
+3. **EDI Drakkar** : messages XML recus en continu, mis a jour au fil de l'eau (dizaines de MAJ/jour)
+
+### Formats PDF supportes
+
+- **Multi-enlevements** : "Instructions de transport" avec "Enlèvement 1", "Enlèvement 2"... (format principal)
+- **Enlevement unique** : "Instructions d'enlèvement" sans numerotation (format secondaire, fallback via `_parse_single_enlevement()`)
+- Import batch de plusieurs PDFs simultanes (timestamp avec microsecondes `_%f` pour eviter collisions UNIQUE)
+
+### Identifiants et rapprochement
+
+- **Reference** (ex: `USRF41070`, `FRBC78660`, `CCG006696`) : identifiant unique d'un shipment, utilise pour TOUT rapprochement (PDF↔Excel, PDF↔EDI)
+- **Numero d'enlevement** (ex: #1, #2... #25) : compteur incremental interne au PDF, **AUCUNE valeur** pour le rapprochement — ne JAMAIS utiliser pour matcher
+- **transaction_ref EDI** = reference + suffixe `/T01`, `/T02` etc. (T01 = enlevement, T02+ = autres transports)
+- **shipment_id EDI** = reference sans suffixe (identique a la reference PDF de base)
+
+### Correlation verifiee (18/03/2026)
+
+| Source → Cible | Taux | Details |
+|----------------|------|---------|
+| Excel → PDF | 86% (32/37) | 5 ecarts : 1 typo (`CNK0550164`), 2 refs Hillebrand absentes du PDF, 1 ajout manuel, 1 ref non extraite |
+| Excel → EDI | 95% (35/37) | 2 absentes : `FRXA83426` (ajout manuel), `FRXA83404` (non trouvee) |
+| PDF → EDI | ~91% | Via page comparaison, scoring multi-criteres |
+
+### Structure du fichier Excel utilisateur
+
+- Onglet par vehicule/remorque (ex: `GL-530-TV`, `HE-097-ZH`, `SEMI TRADI`)
+- En-tete : date, chauffeur, camion, remorque, telephone
+- Colonnes : N°, REF, CLIENT, VILLE, PALS, TYPE, POIDS, COLIS, DESTINATION, OBSERVATION
+- Section "DEUXIEME TOUR" en bas de chaque onglet
+- Ligne TOTAL avec sommes palettes/poids/colis
+- Onglet `FICHE CONDUCTEUR` avec coordonnees chauffeurs
+
+### Noms de societes : differences PDF vs EDI
+
+Le PDF utilise le nom usuel (ex: "MAISON ANDRE GOICHOT"), l'EDI le nom officiel de l'expediteur (ex: "Nos Vins du Sud SAS"). Le rapprochement gere ca via fuzzy matching (SequenceMatcher ratio >= 0.6).
+
 ## Donnees de test
 
 - `donnees/Date 06fevr.2026 0906.txt` - 38 enlevements, 4 livraisons
 - `donnees/Date 10fevr.2026.txt` - 36 enlevements, 4 livraisons
+- `test17032026/HILLEBRAND RAMASSE LOCALE MATRISSE.xlsx` - fichier Excel utilisateur de reference (GL-530-TV + HE-097-ZH, 37 refs, 18/03/2026)
 
 ## Problemes connus
 

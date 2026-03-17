@@ -1351,7 +1351,7 @@ def sauvegarder():
 
         nb_saved = 0
         if nouveaux:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             nom_save = f"Import_{timestamp}"
             save_extraction(DB_PATH, nom_save, extraction_date, nouveaux, log_contenu)
             nb_saved = len(nouveaux)
@@ -1394,6 +1394,23 @@ def api_donnees(filename):
         import traceback
         print(f"Erreur lecture données: {traceback.format_exc()}")
         return jsonify({'erreur': f'Erreur lecture fichier: {str(e)}'}), 500
+
+
+@app.route('/api/enlevements/history')
+def api_enlevements_history():
+    """Historique des modifications d'un enlèvement."""
+    try:
+        try:
+            from bibile.database import get_enlevement_history
+        except ImportError:
+            from database import get_enlevement_history
+        enlevement_id = request.args.get('id', type=int)
+        reference = request.args.get('reference')
+        societe = request.args.get('societe')
+        history = get_enlevement_history(DB_PATH, enlevement_id=enlevement_id, reference=reference, societe=societe)
+        return jsonify({'history': history})
+    except Exception as e:
+        return jsonify({'erreur': str(e)}), 500
 
 
 @app.route('/ouvrir/<filename>')
@@ -2265,22 +2282,17 @@ def api_drakkar_compare():
         if not date:
             return jsonify({'erreur': 'Parametre date requis'}), 400
 
-        # Recuperer les EDI — utilise le cache periodique si disponible,
-        # sinon fetch live depuis Drakkar
+        # Toujours fetch live depuis Drakkar pour avoir _edi_history
         from datetime import timedelta
         dt = datetime.strptime(date, '%Y-%m-%d')
         date_from = (dt - timedelta(days=7)).strftime('%Y-%m-%d')
         date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
-        edi_source = 'cache'
 
-        if _edi_cache['shipments'] and _edi_cache['last_sync']:
-            all_shipments = _edi_cache['shipments']
-        else:
-            config = get_drakkar_config(DB_PATH)
-            if not config:
-                return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
-            all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
-            edi_source = 'live'
+        config = get_drakkar_config(DB_PATH)
+        if not config:
+            return jsonify({'erreur': 'Connexion Drakkar non configuree'}), 400
+        all_shipments = fetch_edi_parsed(config, date_from=date_from, date_to=date_to)
+        edi_source = 'live'
 
         # Filtrer les shipments dont pickup_date correspond a la date selectionnee
         # Inclure aussi ceux sans pickup_date (format inconnu ou absent)
@@ -2307,51 +2319,135 @@ def api_drakkar_compare():
         edi_shipments.extend(edi_no_date)
 
         # Recuperer les enlevements PDF depuis SQLite
-        # La date du document PDF (date_creation) ne correspond pas toujours
-        # a la date d'enlevement : le PDF est souvent genere J-1 ou meme J-2
-        # On prend une fenetre large (J-2 a J+1) mais DEDUPLIQUEE :
-        # seule la derniere extraction par jour est conservee, pour eviter
-        # les doublons des re-extractions du meme PDF
-        pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
-        pdf_date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
+        # Strategie de deduplication :
+        # 1. Prendre l'extraction avec le plus d'entrees pour cette date (= PDF principal)
+        # 2. Ajouter les entrees d'extractions plus recentes dont la societe
+        #    n'est pas deja couverte (= supplements individuels)
+        # Cela evite les doublons entre PDFs unitaires (num=1) et PDF principal (num=15)
         try:
             from bibile.database import get_db as _get_db
         except ImportError:
             from database import get_db as _get_db
         conn = _get_db(DB_PATH)
-        # Chercher par date_enlevement (date de pickup reelle) si disponible,
-        # sinon fallback sur date_creation (date du document) avec deduplication
-        rows = conn.execute("""
-            SELECT e.* FROM enlevements e
-            WHERE e.date_enlevement = ?
-            AND e.id IN (
-                SELECT MAX(e2.id) FROM enlevements e2
-                WHERE e2.date_enlevement = ?
-                GROUP BY e2.num_enlevement, e2.societe
-            )
-            UNION ALL
-            SELECT e.* FROM enlevements e
-            JOIN extractions ex ON e.extraction_id = ex.id
-            WHERE e.date_enlevement IS NULL
-            AND ex.id IN (
-                SELECT MAX(id) FROM extractions
-                WHERE DATE(date_creation) BETWEEN ? AND ?
-                GROUP BY DATE(date_creation)
-            )
-            ORDER BY num_enlevement
-        """, (date, date, pdf_date_from, pdf_date_to)).fetchall()
+
+        # Trouver l'extraction principale (plus d'entrees pour cette date)
+        main_ext = conn.execute("""
+            SELECT extraction_id, COUNT(*) as cnt
+            FROM enlevements WHERE date_enlevement = ?
+            GROUP BY extraction_id ORDER BY cnt DESC, extraction_id DESC LIMIT 1
+        """, (date,)).fetchone()
+
+        if main_ext:
+            main_ext_id = main_ext['extraction_id']
+            # Entrees du PDF principal
+            rows_main = conn.execute("""
+                SELECT e.* FROM enlevements e
+                WHERE e.date_enlevement = ? AND e.extraction_id = ?
+                ORDER BY e.num_enlevement
+            """, (date, main_ext_id)).fetchall()
+            # Societes deja couvertes (normalise en majuscules)
+            covered = set()
+            for r in rows_main:
+                soc = (r['societe'] or '').strip().upper()
+                if soc:
+                    covered.add(soc)
+            # Entrees supplementaires d'extractions plus recentes, non couvertes
+            rows_extra = conn.execute("""
+                SELECT e.* FROM enlevements e
+                WHERE e.date_enlevement = ? AND e.extraction_id > ?
+                AND e.id IN (
+                    SELECT MAX(e2.id) FROM enlevements e2
+                    WHERE e2.date_enlevement = ? AND e2.extraction_id > ?
+                    GROUP BY e2.societe
+                )
+                ORDER BY e.num_enlevement
+            """, (date, main_ext_id, date, main_ext_id)).fetchall()
+            rows = list(rows_main)
+            for r in rows_extra:
+                soc = (r['societe'] or '').strip().upper()
+                if soc not in covered:
+                    rows.append(r)
+                    covered.add(soc)
+        else:
+            rows = []
+
+        # Fallback: entrees sans date_enlevement (anciennes extractions)
+        if not rows:
+            pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+            pdf_date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
+            rows = conn.execute("""
+                SELECT e.* FROM enlevements e
+                JOIN extractions ex ON e.extraction_id = ex.id
+                WHERE e.date_enlevement IS NULL
+                AND ex.id IN (
+                    SELECT MAX(id) FROM extractions
+                    WHERE DATE(date_creation) BETWEEN ? AND ?
+                    GROUP BY DATE(date_creation)
+                )
+                ORDER BY num_enlevement
+            """, (pdf_date_from, pdf_date_to)).fetchall()
+
         conn.close()
         pdf_enlevements = [dict(r) for r in rows]
 
         # Comparer — le matcher rapproche par nom, poids, reference, etc.
         result = compare_edi_pdf(edi_shipments, pdf_enlevements)
+
+        # Construire l'historique EDI : toutes les versions par reference,
+        # ne garder que les refs ou au moins un champ a change entre 2 versions
+        def _edi_sig(v):
+            """Signature normalisee d'une version EDI pour comparaison."""
+            return (
+                str(v.get('sold_by', '') or '').strip(),
+                str(v.get('sold_by_city', '') or '').strip(),
+                int(float(v.get('total_palettes', 0) or 0)),
+                str(v.get('type_palettes', '') or '').strip(),
+                round(float(v.get('poids_total', 0) or 0), 1),
+                int(float(v.get('total_colis', 0) or 0)),
+                str(v.get('delivery_name', '') or '').strip(),
+                str(v.get('pickup_date', '') or '').strip(),
+            )
+
+        edi_histories = {}  # ref_key -> list[dict] (toutes versions, ancien->recent)
+        refs_with_real_changes = set()
+        for s in edi_shipments:
+            edi_hist = s.get('_edi_history', [])
+            if not edi_hist:
+                continue
+            ref_key = s.get('transaction_ref', '') or s.get('shipment_id', '')
+            # Toutes versions : ancien en premier (hist est deja du plus recent au plus ancien)
+            all_versions = list(reversed(edi_hist)) + [s]
+            # Deduplication : ne garder que les versions ou quelque chose change
+            deduped = [all_versions[0]]
+            for i in range(1, len(all_versions)):
+                if _edi_sig(all_versions[i]) != _edi_sig(all_versions[i - 1]):
+                    deduped.append(all_versions[i])
+            if len(deduped) > 1:
+                refs_with_real_changes.add(ref_key)
+                edi_histories[ref_key] = [{
+                    'date': v.get('date_trans', ''),
+                    'societe': v.get('sold_by', ''),
+                    'ville': v.get('sold_by_city', ''),
+                    'palettes': int(float(v.get('total_palettes', 0) or 0)),
+                    'type_palettes': v.get('type_palettes', ''),
+                    'poids': round(float(v.get('poids_total', 0) or 0), 1),
+                    'colis': int(float(v.get('total_colis', 0) or 0)),
+                    'livraison': v.get('delivery_name', ''),
+                    'pickup': v.get('pickup_date', ''),
+                } for v in deduped]
+
+        result['refs_with_history'] = list(refs_with_real_changes)
+        result['edi_histories'] = edi_histories
+
+        nb_with_hist = sum(1 for s in edi_shipments if s.get('_edi_history'))
         result['debug_info'] = {
-            'pdf_date_range': f'{pdf_date_from} -> {pdf_date_to}',
             'edi_date_range': f'{date_from} -> {date_to}',
             'edi_pickup_dates': sorted(edi_all_dates),
             'nb_pdf_enlevements': len(pdf_enlevements),
             'nb_edi_shipments': len(edi_shipments),
             'nb_edi_total_fetched': len(all_shipments),
+            'nb_edi_with_history': nb_with_hist,
+            'nb_refs_with_history': len(refs_with_real_changes),
             'edi_source': edi_source,
             'edi_last_sync': _edi_cache.get('last_sync'),
         }
@@ -2396,31 +2492,62 @@ def api_drakkar_compare_export():
                 edi_shipments.append(s)
 
         # Meme logique de deduplication que api_drakkar_compare
-        pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
         try:
             from bibile.database import get_db as _get_db
         except ImportError:
             from database import get_db as _get_db
         conn = _get_db(DB_PATH)
-        rows = conn.execute("""
-            SELECT e.* FROM enlevements e
-            WHERE e.date_enlevement = ?
-            AND e.id IN (
-                SELECT MAX(e2.id) FROM enlevements e2
-                WHERE e2.date_enlevement = ?
-                GROUP BY e2.num_enlevement, e2.societe
-            )
-            UNION ALL
-            SELECT e.* FROM enlevements e
-            JOIN extractions ex ON e.extraction_id = ex.id
-            WHERE e.date_enlevement IS NULL
-            AND ex.id IN (
-                SELECT MAX(id) FROM extractions
-                WHERE DATE(date_creation) BETWEEN ? AND ?
-                GROUP BY DATE(date_creation)
-            )
-            ORDER BY num_enlevement
-        """, (date, date, pdf_date_from, pdf_date_to)).fetchall()
+
+        # Meme logique de deduplication que api_drakkar_compare
+        main_ext = conn.execute("""
+            SELECT extraction_id, COUNT(*) as cnt
+            FROM enlevements WHERE date_enlevement = ?
+            GROUP BY extraction_id ORDER BY cnt DESC, extraction_id DESC LIMIT 1
+        """, (date,)).fetchone()
+
+        if main_ext:
+            main_ext_id = main_ext['extraction_id']
+            rows_main = conn.execute("""
+                SELECT e.* FROM enlevements e
+                WHERE e.date_enlevement = ? AND e.extraction_id = ?
+                ORDER BY e.num_enlevement
+            """, (date, main_ext_id)).fetchall()
+            covered = set()
+            for r in rows_main:
+                soc = (r['societe'] or '').strip().upper()
+                if soc:
+                    covered.add(soc)
+            rows_extra = conn.execute("""
+                SELECT e.* FROM enlevements e
+                WHERE e.date_enlevement = ? AND e.extraction_id > ?
+                AND e.id IN (
+                    SELECT MAX(e2.id) FROM enlevements e2
+                    WHERE e2.date_enlevement = ? AND e2.extraction_id > ?
+                    GROUP BY e2.societe
+                )
+                ORDER BY e.num_enlevement
+            """, (date, main_ext_id, date, main_ext_id)).fetchall()
+            rows = list(rows_main)
+            for r in rows_extra:
+                soc = (r['societe'] or '').strip().upper()
+                if soc not in covered:
+                    rows.append(r)
+                    covered.add(soc)
+        else:
+            pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
+            pdf_date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
+            rows = conn.execute("""
+                SELECT e.* FROM enlevements e
+                JOIN extractions ex ON e.extraction_id = ex.id
+                WHERE e.date_enlevement IS NULL
+                AND ex.id IN (
+                    SELECT MAX(id) FROM extractions
+                    WHERE DATE(date_creation) BETWEEN ? AND ?
+                    GROUP BY DATE(date_creation)
+                )
+                ORDER BY num_enlevement
+            """, (pdf_date_from, pdf_date_to)).fetchall()
+
         conn.close()
         pdf_enlevements = [dict(r) for r in rows]
 

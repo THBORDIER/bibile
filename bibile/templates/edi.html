@@ -17,8 +17,11 @@
                 <button id="btnTodayEdi" class="btn-nav btn-today" title="Aujourd'hui">Auj.</button>
             </div>
         </div>
+        <div class="toolbar-group">
+            <label>Recherche</label>
+            <input type="text" id="ediSearchInput" class="form-input" placeholder="Ref, societe PDF/EDI..." style="min-width: 220px;">
+        </div>
         <div class="toolbar-actions">
-            <button id="btnCompare" class="btn btn-primary">Comparer</button>
             <button id="btnViewEdiRaw" class="btn btn-secondary">Voir EDI bruts</button>
         </div>
     </div>
@@ -95,6 +98,7 @@
                     <th>EDI Poids</th>
                     <th>PDF Colis</th>
                     <th>EDI Colis</th>
+                    <th style="width:40px"></th>
                 </tr>
             </thead>
             <tbody id="ediResultBody"></tbody>
@@ -150,6 +154,19 @@
     <div style="padding: 32px; text-align: center;">
         <p style="color: #8b949e;">La connexion Drakkar n'est pas configuree.</p>
         <a href="/parametres" class="btn btn-primary">Configurer dans les parametres</a>
+    </div>
+</div>
+
+<!-- Modal Historique -->
+<div id="historyModal" class="modal-overlay hidden" onclick="if(event.target===this)closeHistoryModal()">
+    <div class="modal-content" style="max-width: 800px; max-height: 80vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h3 id="historyTitle">Historique des modifications</h3>
+            <button class="btn-close" onclick="closeHistoryModal()">&times;</button>
+        </div>
+        <div id="historyBody" style="padding: 16px;">
+            <p style="color: #8b949e;">Chargement...</p>
+        </div>
     </div>
 </div>
 {% endblock %}
