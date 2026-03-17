@@ -71,9 +71,12 @@ async function fetchVehiclePositions() {
         vehiclePositions.forEach(p => {
             if (p.lat == null || p.lon == null) return;
 
+            // N'afficher que les vehicules selectionnes (suivis)
             const isSelected = p.selected;
-            const svg = isSelected ? TRUCK_SVG_BLUE : TRUCK_SVG_GREY;
-            const size = isSelected ? 32 : 20;
+            if (!isSelected) return;
+
+            const svg = TRUCK_SVG_BLUE;
+            const size = 32;
             const icon = L.divIcon({
                 className: 'truck-marker',
                 html: svg,

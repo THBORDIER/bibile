@@ -2553,10 +2553,13 @@ def api_drakkar_compare():
         conn = _get_db(DB_PATH)
 
         # Trouver l'extraction principale (plus d'entrees pour cette date)
+        # Exclure les extractions EDI (EDI_*) pour ne garder que les vrais PDF
         main_ext = conn.execute("""
-            SELECT extraction_id, COUNT(*) as cnt
-            FROM enlevements WHERE date_enlevement = ?
-            GROUP BY extraction_id ORDER BY cnt DESC, extraction_id DESC LIMIT 1
+            SELECT e.extraction_id, COUNT(*) as cnt
+            FROM enlevements e
+            JOIN extractions ex ON ex.id = e.extraction_id
+            WHERE e.date_enlevement = ? AND ex.nom_fichier NOT LIKE 'EDI_%'
+            GROUP BY e.extraction_id ORDER BY cnt DESC, e.extraction_id DESC LIMIT 1
         """, (date,)).fetchone()
 
         if main_ext:
@@ -2573,13 +2576,17 @@ def api_drakkar_compare():
                 soc = (r['societe'] or '').strip().upper()
                 if soc:
                     covered.add(soc)
-            # Entrees supplementaires d'extractions plus recentes, non couvertes
+            # Entrees supplementaires d'extractions plus recentes, non couvertes (exclure EDI)
             rows_extra = conn.execute("""
                 SELECT e.* FROM enlevements e
+                JOIN extractions ex ON ex.id = e.extraction_id
                 WHERE e.date_enlevement = ? AND e.extraction_id > ?
+                AND ex.nom_fichier NOT LIKE 'EDI_%'
                 AND e.id IN (
                     SELECT MAX(e2.id) FROM enlevements e2
+                    JOIN extractions ex2 ON ex2.id = e2.extraction_id
                     WHERE e2.date_enlevement = ? AND e2.extraction_id > ?
+                    AND ex2.nom_fichier NOT LIKE 'EDI_%'
                     GROUP BY e2.societe
                 )
                 ORDER BY e.num_enlevement
@@ -2593,7 +2600,7 @@ def api_drakkar_compare():
         else:
             rows = []
 
-        # Fallback: entrees sans date_enlevement (anciennes extractions)
+        # Fallback: entrees sans date_enlevement (anciennes extractions, exclure EDI)
         if not rows:
             pdf_date_from = (dt - timedelta(days=2)).strftime('%Y-%m-%d')
             pdf_date_to = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -2601,9 +2608,11 @@ def api_drakkar_compare():
                 SELECT e.* FROM enlevements e
                 JOIN extractions ex ON e.extraction_id = ex.id
                 WHERE e.date_enlevement IS NULL
+                AND ex.nom_fichier NOT LIKE 'EDI_%'
                 AND ex.id IN (
                     SELECT MAX(id) FROM extractions
                     WHERE DATE(date_creation) BETWEEN ? AND ?
+                    AND nom_fichier NOT LIKE 'EDI_%'
                     GROUP BY DATE(date_creation)
                 )
                 ORDER BY num_enlevement
@@ -2721,10 +2730,13 @@ def api_drakkar_compare_export():
         conn = _get_db(DB_PATH)
 
         # Meme logique de deduplication que api_drakkar_compare
+        # Exclure les extractions EDI (EDI_*) pour ne garder que les vrais PDF
         main_ext = conn.execute("""
-            SELECT extraction_id, COUNT(*) as cnt
-            FROM enlevements WHERE date_enlevement = ?
-            GROUP BY extraction_id ORDER BY cnt DESC, extraction_id DESC LIMIT 1
+            SELECT e.extraction_id, COUNT(*) as cnt
+            FROM enlevements e
+            JOIN extractions ex ON ex.id = e.extraction_id
+            WHERE e.date_enlevement = ? AND ex.nom_fichier NOT LIKE 'EDI_%'
+            GROUP BY e.extraction_id ORDER BY cnt DESC, e.extraction_id DESC LIMIT 1
         """, (date,)).fetchone()
 
         if main_ext:
@@ -2741,10 +2753,14 @@ def api_drakkar_compare_export():
                     covered.add(soc)
             rows_extra = conn.execute("""
                 SELECT e.* FROM enlevements e
+                JOIN extractions ex ON ex.id = e.extraction_id
                 WHERE e.date_enlevement = ? AND e.extraction_id > ?
+                AND ex.nom_fichier NOT LIKE 'EDI_%'
                 AND e.id IN (
                     SELECT MAX(e2.id) FROM enlevements e2
+                    JOIN extractions ex2 ON ex2.id = e2.extraction_id
                     WHERE e2.date_enlevement = ? AND e2.extraction_id > ?
+                    AND ex2.nom_fichier NOT LIKE 'EDI_%'
                     GROUP BY e2.societe
                 )
                 ORDER BY e.num_enlevement
@@ -2762,9 +2778,11 @@ def api_drakkar_compare_export():
                 SELECT e.* FROM enlevements e
                 JOIN extractions ex ON e.extraction_id = ex.id
                 WHERE e.date_enlevement IS NULL
+                AND ex.nom_fichier NOT LIKE 'EDI_%'
                 AND ex.id IN (
                     SELECT MAX(id) FROM extractions
                     WHERE DATE(date_creation) BETWEEN ? AND ?
+                    AND nom_fichier NOT LIKE 'EDI_%'
                     GROUP BY DATE(date_creation)
                 )
                 ORDER BY num_enlevement
