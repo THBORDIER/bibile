@@ -158,8 +158,8 @@ def nettoyer_texte(texte):
 
         # Détecter le pied de page Hillebrand (signature unique, n'apparaît qu'aux sauts de page)
         if 'Hillebrand Gori France SAS' in ligne and 'Chevrolet' in ligne and 'Beaune' in ligne:
-            # Vérifier que la ligne suivante est bien le numéro de page
-            if i + 1 < len(lignes) and 'VAT number' in lignes[i + 1] and 'Page' in lignes[i + 1]:
+            # Vérifier que la ligne suivante contient VAT number (+ Page sur même ligne ou ligne d'après)
+            if i + 1 < len(lignes) and 'VAT number' in lignes[i + 1] and ('Page' in lignes[i + 1] or (i + 2 < len(lignes) and 'Page' in lignes[i + 2])):
                 # Supprimer aussi les lignes de code-barres qui précèdent le pied de page
                 # (ex: FRBG164812, µFRBG164812JÄ)
                 while lignes_nettoyees and re.match(r'^µ?[A-Z]{3,5}\d{5,7}', lignes_nettoyees[-1].strip()):
@@ -253,7 +253,7 @@ def extraire_totaux_livraisons(texte):
                             mots = dest_ligne.split()
                             for mot in mots:
                                 mot_upper = mot.upper()
-                                if mot_upper in ['TRANSIT', 'CHEVROLET', 'STORAGE', 'GORI']:
+                                if mot_upper in ['TRANSIT', 'CHEVROLET', 'STORAGE']:
                                     if mot_upper == 'CHEVROLET':
                                         nom_destinataire = 'CHEVROLET'
                                     elif mot_upper == 'TRANSIT':
@@ -386,7 +386,7 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
     # Trouver la fin de cet enlèvement (= début du prochain enlèvement)
     index_fin = len(lignes)
     for k in range(index_debut + 1, len(lignes)):
-        if re.match(r'^Enlèvement\s+\d+', lignes[k]):
+        if re.match(r'^Enlèvement\s+\d+(?:\s|$)', lignes[k]):
             index_fin = k
             break
 
@@ -402,7 +402,7 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
         infos['societe'] = match.group(2).strip().upper()
     else:
         # Format PyMuPDF: numéro seul sur la ligne, société sur la suivante
-        match_num = re.search(r'Enlèvement\s+(\d+)', ligne_enlevement)
+        match_num = re.search(r'Enlèvement\s+(\d+)(?:\s|$)', ligne_enlevement)
         if match_num:
             infos['num_enlevement'] = match_num.group(1)
             # Chercher la société sur les lignes suivantes (avant "Au total" ou code postal)
@@ -554,7 +554,31 @@ def extraire_info_enlevement(lignes, index_debut, mapping_destinataires=None):
             if match_colis:
                 colis = match_colis.group(1)
 
-            # Si pas de poids/colis sur la ligne, utiliser les totaux de l'enlèvement
+            # PyMuPDF: poids/colis peuvent être sur les lignes suivantes (pas sur la ligne palette)
+            if not poids or not colis:
+                for k in range(j + 1, min(j + 5, index_fin)):
+                    lk = lignes[k].strip()
+                    # Arrêter si on atteint une autre palette, ref, ou section
+                    if re.match(r'^(\d+\s+)?(Part|Half|Euro|VMF|Loose)\s', lk, re.IGNORECASE):
+                        break
+                    if re.match(r'^(\d+\s+)?[Pp]allet', lk):
+                        break
+                    if lk.startswith('Réf:') or lk.startswith('Ref:') or lk.startswith('Notre'):
+                        break
+                    if 'Product:' in lk or 'Fera partie' in lk:
+                        break
+                    if not poids:
+                        mp = re.search(r'^([0-9\.]+)\s*kg', lk, re.IGNORECASE)
+                        if mp:
+                            poids = mp.group(1).replace('.', '')
+                    if not colis:
+                        mc = re.search(r'^(\d+)\s*Colis', lk, re.IGNORECASE)
+                        if mc:
+                            colis = mc.group(1)
+                    if poids and colis:
+                        break
+
+            # Si toujours pas de poids/colis, utiliser les totaux de l'enlèvement
             if not poids and infos['poids_total']:
                 poids = infos['poids_total']
             if not colis and infos['colis_total']:
@@ -630,7 +654,7 @@ def parser_texte(texte, log_file):
     i = 0
     while i < len(lignes):
         # Chercher le mot-clé "Enlèvement X"
-        if re.match(r'^Enlèvement\s+\d+', lignes[i]):
+        if re.match(r'^Enlèvement\s+\d+(?:\s|$)', lignes[i]):
             # Extraire toutes les infos de cet enlèvement
             infos, palettes = extraire_info_enlevement(lignes, i, mapping_destinataires)
 
@@ -1650,6 +1674,17 @@ def api_ext_vehicules():
         if not config:
             return jsonify({'erreur': 'Connexion externe non configuree'}), 400
         vehicles = fetch_external_vehicles(config)
+
+        # Fusionner avec les selections locales (vehicules_sync)
+        selected = {}
+        try:
+            for v in list_vehicules_sync(DB_PATH):
+                selected[str(v['externe_id'])] = bool(v.get('selectionne'))
+        except Exception:
+            pass
+        for v in vehicles:
+            v['selectionne'] = selected.get(str(v.get('externe_id')), False)
+
         return jsonify({'vehicules': vehicles})
     except Exception as e:
         return jsonify({'erreur': str(e)}), 500
@@ -1807,6 +1842,16 @@ def api_edi_sync_now():
         return jsonify({'erreur': str(e)}), 500
 
 
+# ===== QUITTER =====
+
+@app.route('/api/quit', methods=['POST'])
+def api_quit():
+    """Ferme l'application (arret du process)."""
+    import os, signal
+    os.kill(os.getpid(), signal.SIGTERM)
+    return jsonify({'ok': True})
+
+
 # ===== MISE A JOUR =====
 
 @app.route('/api/update/check')
@@ -1941,6 +1986,16 @@ def api_drakkar_test():
         return jsonify({'success': False, 'message': str(e)})
 
 
+def _humanize_drakkar_error(e):
+    """Transforme les erreurs techniques Drakkar en messages lisibles."""
+    msg = str(e)
+    if 'Adaptive Server' in msg or 'connection failed' in msg.lower() or 'Network' in msg:
+        return "Serveur Drakkar (sv-drakkar) injoignable. Verifiez que le serveur est demarre et accessible depuis ce poste."
+    if 'Login failed' in msg or 'login' in msg.lower():
+        return "Identifiants Drakkar refuses. Verifiez le login/mot de passe dans Parametres."
+    return f"Erreur Drakkar: {msg}"
+
+
 @app.route('/api/drakkar/edi')
 def api_drakkar_edi():
     """Recupere les messages EDI parses pour une date."""
@@ -1952,7 +2007,7 @@ def api_drakkar_edi():
         shipments = fetch_edi_parsed(config, date_from=date, date_to=date)
         return jsonify({'shipments': shipments, 'count': len(shipments)})
     except Exception as e:
-        return jsonify({'erreur': str(e)}), 500
+        return jsonify({'erreur': _humanize_drakkar_error(e)}), 500
 
 
 @app.route('/api/drakkar/stats')
@@ -1967,7 +2022,7 @@ def api_drakkar_stats():
         stats = fetch_edi_stats(config, date_from=date_from, date_to=date_to)
         return jsonify(stats)
     except Exception as e:
-        return jsonify({'erreur': str(e)}), 500
+        return jsonify({'erreur': _humanize_drakkar_error(e)}), 500
 
 
 @app.route('/api/drakkar/compare')
@@ -2070,7 +2125,7 @@ def api_drakkar_compare():
         }
         return jsonify(result)
     except Exception as e:
-        return jsonify({'erreur': str(e)}), 500
+        return jsonify({'erreur': _humanize_drakkar_error(e)}), 500
 
 
 @app.route('/api/drakkar/compare/export')
@@ -2221,7 +2276,7 @@ def api_drakkar_compare_export():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     except Exception as e:
-        return jsonify({'erreur': str(e)}), 500
+        return jsonify({'erreur': _humanize_drakkar_error(e)}), 500
 
 
 @app.route('/api/database/purge', methods=['POST'])
