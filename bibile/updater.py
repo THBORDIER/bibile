@@ -132,9 +132,9 @@ title Mise a jour Bibile...
 echo Mise a jour de Bibile en cours, veuillez patienter...
 echo.
 
-:: Attendre que l'application se ferme
+:: Attendre que l'application se ferme (par PID uniquement)
 :wait_loop
-tasklist /FI "PID eq {pid}" 2>NUL | find /I "Bibile.exe" >NUL
+tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL
 if not errorlevel 1 (
     timeout /t 1 /nobreak >NUL
     goto wait_loop
@@ -168,5 +168,5 @@ del "%~f0"
         close_fds=True,
     )
 
-    # Fermer l'application
-    sys.exit(0)
+    # Fermer l'application (os._exit force la fermeture meme si pywebview bloque)
+    os._exit(0)
