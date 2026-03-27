@@ -4,8 +4,7 @@
  */
 
 let currentDate = '';
-let currentExtractionId = null;  // Archive: plus utilise en mode EDI
-let ediExtractionId = null;      // ID extraction EDI synchronisee
+let currentExtractionId = null;
 let tournees = [];
 let unassigned = [];
 let chauffeurs = [];
@@ -19,8 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event listeners
     document.getElementById('datePicker').addEventListener('change', onDateChange);
-    // Archive: extraction dropdown desactive en mode EDI
-    // document.getElementById('extractionSelect').addEventListener('change', onExtractionChange);
+    document.getElementById('extractionSelect').addEventListener('change', onExtractionChange);
     document.getElementById('btnNewTournee').addEventListener('click', showNewTourneeModal);
     document.getElementById('btnAutoDistrib').addEventListener('click', autoDistribuer);
     document.getElementById('btnCreateTournee').addEventListener('click', createTournee);
@@ -49,17 +47,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Charger les données initiales
     loadChauffeurs();
     loadVehicules();
-    // Archive: loadExtractions() desactive en mode EDI
-    syncEdiAndLoad();
+    loadExtractions();
 });
 
 
 function onDateChange() {
     currentDate = document.getElementById('datePicker').value;
     currentExtractionId = null;
-    ediExtractionId = null;
-    // Archive: loadExtractions() desactive en mode EDI
-    syncEdiAndLoad();
+    loadExtractions();
 }
 
 
@@ -72,35 +67,7 @@ function changeDay(delta) {
 }
 
 
-// --- Source EDI : sync et chargement ---
-async function syncEdiAndLoad() {
-    const badge = document.getElementById('ediBadge');
-    if (badge) badge.textContent = 'Synchro EDI...';
-    try {
-        const resp = await fetch('/api/tournees/sync-edi', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: currentDate }),
-        });
-        const data = await resp.json();
-        if (data.erreur) {
-            console.warn('Sync EDI:', data.erreur);
-            if (badge) badge.textContent = 'EDI: erreur';
-        } else {
-            ediExtractionId = data.extraction_id || null;
-            currentExtractionId = ediExtractionId;
-            const total = (data.synced || 0) + (data.kept || 0);
-            if (badge) badge.textContent = `EDI: ${total} enlevements`;
-        }
-    } catch (e) {
-        console.error('Erreur sync EDI:', e);
-        if (badge) badge.textContent = 'EDI: hors ligne';
-    }
-    loadData();
-}
 
-// --- Archive : ancien mode extraction PDF (desactive) ---
-/*
 function onExtractionChange() {
     const val = document.getElementById('extractionSelect').value;
     currentExtractionId = val ? parseInt(val) : null;
@@ -123,7 +90,6 @@ async function loadExtractions() {
         console.error('Erreur chargement extractions:', e);
     }
 }
-*/
 
 
 async function loadChauffeurs() {
@@ -168,9 +134,8 @@ function populateSelect(selectId, items, valueKey, labelFn) {
 
 async function loadData() {
     try {
-        // En mode EDI, utiliser l'extraction EDI synchronisee
-        const params = ediExtractionId
-            ? `extraction_id=${ediExtractionId}`
+        const params = currentExtractionId
+            ? `extraction_id=${currentExtractionId}`
             : `date=${currentDate}`;
 
         const [tourneesResp, unassignedResp] = await Promise.all([
@@ -465,7 +430,7 @@ async function autoDistribuer() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 date_tournee: currentDate,
-                extraction_id: ediExtractionId || currentExtractionId,
+                extraction_id: currentExtractionId,
             }),
         });
         const result = await resp.json();
