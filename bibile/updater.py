@@ -127,6 +127,8 @@ def apply_update(zip_path, app_dir):
 
     pid = os.getpid()
 
+    temp_dir = data_dir / 'update_temp'
+
     batch_content = f"""@echo off
 title Mise a jour Bibile...
 echo Mise a jour de Bibile en cours, veuillez patienter...
@@ -143,12 +145,18 @@ if not errorlevel 1 (
 :: Petite pause de securite
 timeout /t 2 /nobreak >NUL
 
-:: Extraire la mise a jour
+:: Extraire dans un dossier temporaire
 echo Extraction de la mise a jour...
-powershell -Command "Expand-Archive -Path '{str(zip_path)}' -DestinationPath '{str(parent_dir)}' -Force"
+if exist "{str(temp_dir)}" rmdir /s /q "{str(temp_dir)}"
+powershell -Command "Expand-Archive -Path '{str(zip_path)}' -DestinationPath '{str(temp_dir)}' -Force"
+
+:: Copier le contenu du sous-dossier extrait vers le dossier de l'app
+echo Installation...
+powershell -Command "Get-ChildItem '{str(temp_dir)}' -Directory | Select-Object -First 1 | ForEach-Object {{ Copy-Item -Path (Join-Path $_.FullName '*') -Destination '{str(app_dir)}' -Recurse -Force }}"
 
 :: Nettoyage
 del "{str(zip_path)}"
+if exist "{str(temp_dir)}" rmdir /s /q "{str(temp_dir)}"
 
 :: Relancer l'application
 echo Redemarrage de Bibile...
